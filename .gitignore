@@ -1,0 +1,62 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+.env
+.venv
+env/
+venv/
+ENV/
+
+# R
+.Rhistory
+.Rapp.history
+.RData
+.Ruserdata
+*.Rproj
+*.Rproj.user
+
+# Jupyter Notebook
+.ipynb_checkpoints
+*.ipynb_checkpoints/
+
+# Data files (large files)
+*.csv
+*.xlsx
+*.xls
+*.pkl
+*.rds
+*.feather
+*.parquet
+*.zip
+
+# Logs
+*.log
+logs/
+*.pid
+
+# Cache
+cache/
+*.cache
+
+# Results
+results/
+output/
+analysis_outputs/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
