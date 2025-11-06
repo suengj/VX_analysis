@@ -1,7 +1,7 @@
 # Research History - refactor_v2 Project
 
 **Purpose**: Track all research activities and analyses conducted using the refactor_v2 framework  
-**Last Updated**: 2025-10-28  
+**Last Updated**: 2025-11-07  
 **Maintainer**: Suengjae Hong
 
 ---
@@ -16,6 +16,39 @@
 # Imprinting Analysis
 
 ## Overview
+
+### Update (2025-11-07)
+
+**VC Reputation Index Implementation**
+
+Added comprehensive VC reputation calculation module with 6 component variables:
+
+1. **Component Variables** (5-year rolling window [t-4, t]):
+   - `rep_portfolio_count`: Unique portfolio companies invested in [t-4, t]
+   - `rep_total_invested`: Total funds invested [t-4, t] (RoundAmountDisclosedThou sum)
+   - `rep_avg_fum`: Average funds under management at year t
+     - Logic: Funds raised before t that are still open (fundiniclosing parsing: dd.mm.yyyy format)
+     - Parsing failure monitoring: Logs failure rate for fundiniclosing date parsing
+   - `rep_funds_raised`: Number of funds raised [t-4, t] (unique fundname count)
+   - `rep_ipos`: Portfolio firms taken public [t-4, t]
+     - Logic: Counts IPOs of companies invested in the past, where IPO occurred in [t-4, t]
+   - `fundingAge`: VC age from first fund raising year (t - min(fundyear))
+
+2. **Reputation Index Calculation**:
+   - Step 1: Z-score standardize each variable BY YEAR
+   - Step 2: Sum all 6 z-scores → `rep_index_raw`
+   - Step 3: Min-Max scale to [0.01, 100] BY YEAR → `VC_reputation`
+
+3. **Missing Data Handling**:
+   - `rep_missing_fund_data` flag: 1 if any fund-based variable (rep_avg_fum, rep_funds_raised, fundingAge) is missing
+   - Can be used to exclude observations in final sampling
+   - Merge strategy: `how='left'` to preserve round_df-based firm-year structure
+
+4. **Implementation Details**:
+   - Module: `vc_analysis/variables/firm_variables.py`
+   - Functions: `calculate_vc_reputation()` (main), 6 individual variable functions
+   - Constants: `REPUTATION_SETTINGS` in `constants.py`
+   - Integration: Added to `preprc_imprint.ipynb` merge pipeline (Step 4)
 
 ### Update (2025-10-28)
 
@@ -406,6 +439,15 @@ initial_year_df = imprinting.identify_initial_year(filtered, 'firmname', 'year')
 initial_partners = imprinting.extract_initial_partners(filtered, networks, initial_year_df, 3, 'firmname')
 initial_ties_cent = imprinting.calculate_partner_centrality_by_year(initial_partners, cent_df, 'firmname')
 initial_status = imprinting.compute_all_initial_partner_status(initial_ties_cent, None, 'firmname')
+
+# VC Reputation calculation
+reputation_df = firm_variables.calculate_vc_reputation(
+    round_df=data['round'],
+    company_df=data['company'],
+    fund_df=data['fund'],
+    year_col='year',
+    window_years=5
+)
 ```
 
 ---
@@ -451,9 +493,10 @@ initial_status = imprinting.compute_all_initial_partner_status(initial_ties_cent
 
 ---
 
-**Document Version**: 1.0  
-**Last Updated**: 2025-10-28  
-**Total Lines**: ~500
+**Document Version**: 1.1  
+**Last Updated**: 2025-11-07  
+**Total Lines**: ~550
+
 
 
 

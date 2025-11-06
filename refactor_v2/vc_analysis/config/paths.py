@@ -50,14 +50,14 @@ def get_round_files():
     """Get list of all round data files"""
     if ROUND_FILE.exists():
         return [ROUND_FILE]
-    return []
+        return []
 
 
 def get_company_files():
     """Get list of all company data files"""
     if COMDTA_FILE.exists():
         return [COMDTA_FILE]
-    return []
+        return []
 
 
 def get_cache_path(name, extension='parquet'):

@@ -177,3 +177,15 @@ DIVERSITY_SETTINGS = {
     'stage_column': 'CompanyStageLevel1'  # Stage for stage diversity
 }
 
+# VC Reputation calculation settings
+# Based on prior practice: z-score standardization + min-max scaling to [0.01, 100]
+REPUTATION_SETTINGS = {
+    'window_years': 5,  # Rolling window size (default: 5 years, [t-4, t])
+    'min_value': 0.01,  # Minimum reputation value after scaling
+    'max_value': 100.0,  # Maximum reputation value after scaling
+    'fundyear_column': 'fundyear',  # Fund year column name
+    'fundiniclosing_column': 'fundiniclosing',  # Fund initial closing date (dd.mm.yyyy format)
+    'fundsize_column': 'fundsize',  # Fund size column name
+    'fundname_column': 'fundname'  # Fund name column name (for counting)
+}
+

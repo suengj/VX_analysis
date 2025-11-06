@@ -345,7 +345,7 @@ def compute_all_centralities(G: nx.Graph,
     # Betweenness centrality
     if compute_betweenness:
         btw_cent = compute_betweenness_centrality(
-            G,
+            G, 
             normalized=normalize_betweenness,
             weighted=use_weighted_betweenness,
             weight=weight_column,

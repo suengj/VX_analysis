@@ -35,6 +35,15 @@
 - `vc_analysis/variables/firm_variables.py`
   - `firmage`, `industry_blau`(comindmnr), `perf_*`(당해 연도), `early_stage_ratio`, `firm_hq`(CA/MA), `inv_amt`, `inv_num`
   - `fill_missing_performance_with_zero(df, ...)` 제공
+  - **VC Reputation**: 6개 구성 변수 + Z-score 표준화 + Min-Max 스케일링 [0.01, 100]
+    - `rep_portfolio_count`: [t-4, t] 기간 동안 투자한 unique portfolio companies 수
+    - `rep_total_invested`: [t-4, t] 기간 동안 총 투자 금액
+    - `rep_avg_fum`: t 시점에서 관리 중인 fund들의 평균 size (fundiniclosing 고려)
+    - `rep_funds_raised`: [t-4, t] 기간 동안 raising한 fund 개수
+    - `rep_ipos`: 과거 투자한 회사들 중 [t-4, t] 기간 동안 IPO한 회사 수
+    - `fundingAge`: t - 첫 번째 fund raising year
+    - `VC_reputation`: 6개 변수 Z-score 합산 후 연도별 Min-Max 스케일링
+    - `rep_missing_fund_data`: fund 데이터 누락 플래그 (최종 샘플링 시 제외용)
 - `vc_analysis/config/parameters.py`
   - 중심성 정규화 및 가중치 토글
   - `constraint` NA 채움/상한 토글
@@ -81,7 +90,28 @@
 - `inv_amt`, `inv_num`: 연도별 합/건수
 - `firm_hq`: CA/MA 더미(firm-level → 모든 연도에 병합)
 
-### 4) 전처리/정합성
+### 4) VC Reputation (Firm-Year)
+- **구성 변수** (6개, 5-year rolling window [t-4, t]):
+  - `rep_portfolio_count`: [t-4, t] 기간 동안 투자한 unique `comname` 개수
+  - `rep_total_invested`: [t-4, t] 기간 동안 `RoundAmountDisclosedThou` 합계 (NaN → 0)
+  - `rep_avg_fum`: t 시점에서 관리 중인 fund들의 평균 `fundsize`
+    - 조건: `fundyear < t` AND (`fundiniclosing` 비어있음 OR `fundiniclosing_year > t`)
+    - `fundiniclosing` 파싱: dd.mm.yyyy 형식 (예: 23.05.2022) → 연도 추출
+    - 파싱 실패 모니터링: 로깅으로 실패 비율 출력
+  - `rep_funds_raised`: [t-4, t] 기간 동안 raising한 unique `fundname` 개수
+  - `rep_ipos`: 과거 투자한 회사들 중 [t-4, t] 기간 동안 IPO한 unique `comname` 개수
+    - 로직: 투자는 과거에 했고, IPO는 [t-4, t] 동안 일어난 것만 카운트
+  - `fundingAge`: t - min(`fundyear`) per firm (fund 데이터 기준)
+- **Reputation Index 계산**:
+  1. 각 변수를 연도별로 Z-score 표준화: `z = (x - mean) / std` (std=0이면 0)
+  2. 6개 Z-score 합산: `rep_index_raw = Σ(z_i)`
+  3. 연도별 Min-Max 스케일링: `VC_reputation = 0.01 + (raw - min) / (max - min) × 99.99`
+- **Missing 처리**:
+  - Fund 기반 변수(`rep_avg_fum`, `rep_funds_raised`, `fundingAge`) 누락 시 `rep_missing_fund_data = 1` 플래그 생성
+  - 최종 샘플링 시 `rep_missing_fund_data = 1`인 관측치 제외 가능
+- **Merge 방식**: `how='left'` (round_df 기반 firm-year 구조 유지)
+
+### 5) 전처리/정합성
 - `Undisclosed Firm/Company` 선제 제거(라운드/머지 전)
 - Firm dedup: earliest founding → 동률 시 zip 보유 우선
 - Company dedup: 비결측 스코어 최댓값 선택
@@ -89,13 +119,13 @@
 - Registry 필터: `filter_round_by_firm_registry('strict' | 'nation_select', nation_codes=[...])`
 - Angel/Other/Null 제외(요청에 따름)
 
-### 5) 모델링 가이드(요약)
+### 6) 모델링 가이드(요약)
 - 패널 모형(예):
   - 기본: y_{i,t} = β1·centrality_{i,t} + γ_t + X_{i,t}·β + ε
   - initial_* 포함: firm FE 없이 time FE, 또는 RE/다른 FE 구성
   - 로버스트 체크: 정규화/가중, 윈도우 길이, 코호트, 변환(로그/표준화), 선택편의(in_network) 통제(in_network 더미 동시 투입) 등
 
-### 6) 파이프라인(요약, Mermaid)
+### 7) 파이프라인(요약, Mermaid)
 ```mermaid
 flowchart TD
   A[Raw Round/Company/Firm] --> B[Preprocess: Undisclosed 제거, Dedup]
@@ -107,9 +137,11 @@ flowchart TD
   G --> H[Partner Centrality at each t]
   H --> I[Partner-weighted Status (firm-level)]
   C --> J[Firm Basics (firm-year)]
+  C --> L[VC Reputation (firm-year)]
   E --> K[Final Panel]
   J --> K
   I --> K
+  L --> K
 ```
 
 ---
@@ -117,11 +149,23 @@ flowchart TD
 <a id="discussion-2025-10-28"></a>
 ## 🧩 논의 및 합의 사항 (2025-10-28)
 
+### 추가 업데이트 (VC Reputation 구현 - 2025-11-07)
+- **VC Reputation Index 구현**: 6개 구성 변수를 5-year rolling window [t-4, t]로 계산
+  - 변수 1-2, 4: Portfolio count, Total invested, Funds raised (round 데이터 기반)
+  - 변수 3: Average FUM (fund 데이터 기반, fundiniclosing 파싱 포함)
+  - 변수 5: IPOs (투자는 과거, IPO는 [t-4, t] 동안 발생한 것만 카운트)
+  - 변수 6: Funding age (fundyear 기준 첫 fund raising year)
+- **Reputation 계산**: 연도별 Z-score 표준화 → 합산 → 연도별 Min-Max 스케일링 [0.01, 100]
+- **Missing 처리**: `rep_missing_fund_data` 플래그 추가 (fund 기반 변수 누락 시 1, 최종 샘플링 시 제외 가능)
+- **Merge 방식**: `how='left'` 사용 (round_df 기반 firm-year 구조 유지)
+- **파싱 모니터링**: fundiniclosing 파싱 실패 비율 로깅 추가
+
 ### 추가 업데이트 (Final sampling + export)
 - 분석 가능 샘플 필터 추가: 연도/기본변수/네트워크(in_network)/초기상태/성과 조건을 토글로 구성하여 `analysis_df` 생성.
 - 저장 포맷: Parquet(기본), Feather(가능 시), CSV는 용량 제한을 위해 샘플링 저장(`CSV_SAMPLE_N`, 무작위/상위 N 선택 지원).
 - R 호환성: arrow 패키지(`read_parquet`, `read_feather`)로 즉시 로딩 가능하도록 저장.
 - 인덱스 정리: `analysis_df.reset_index(drop=True)` 적용.
+- 파일명 스탬프: 날짜시간 스탬프 추가 (예: `final_analysis_1990_2000_251107_0033.parquet`)
 
 
 ### 추가 업데이트 (2025-10-28)
@@ -143,6 +187,8 @@ flowchart TD
 
 <a id="history"></a>
 ## 🕒 히스토리 (요약 타임라인)
+
+- 2025-11-07: VC Reputation Index 구현 완료 (6개 구성 변수, Z-score 표준화, Min-Max 스케일링), IPO 로직 수정 (투자는 과거, IPO는 [t-4, t]), Merge 방식 left join으로 변경, rep_missing_fund_data 플래그 추가, fundiniclosing 파싱 모니터링 추가.
 
 - 2025-10-28: 코호트 내 initial_* 결측 진단 및 재분류 제안(‘other’→‘no_partners’), 진단 셀 안정화(`initial_year_full` 보강), merge 기준 확정, centrality NA 후처리 가이드 반영.
 
@@ -185,6 +231,6 @@ refactor_v2/
 
 ---
 
-**최종 업데이트**: 2025-10-28  
-**분석 상태**: 데이터 준비 완료, 분석 단계 진입 준비  
+**최종 업데이트**: 2025-11-07  
+**분석 상태**: 데이터 준비 완료 (VC Reputation 포함), 분석 단계 진입 준비  
 **다음 미팅**: 회귀 분석 결과 검토
