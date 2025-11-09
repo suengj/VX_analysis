@@ -131,6 +131,9 @@ def compute_power_centrality(G: nx.Graph,
             # Unweighted: ignore edge weights
             A = nx.adjacency_matrix(G, weight=None)
         
+        # Convert to float type (required for eigs and matrix operations)
+        A = A.astype(float)
+        
         # Get largest eigenvalue
         eigenvalues, _ = eigs(A, k=1, which='LM')
         lambda_max = np.abs(eigenvalues[0].real)
@@ -142,11 +145,11 @@ def compute_power_centrality(G: nx.Graph,
         # Compute power centrality
         # c = (I - βA)^(-1) A 1
         n = G.number_of_nodes()
-        I = np.eye(n)
+        I = np.eye(n, dtype=float)
         A_dense = A.todense()
         
         inv_matrix = np.linalg.inv(I - beta * A_dense)
-        ones = np.ones(n)
+        ones = np.ones(n, dtype=float)
         power_cent = inv_matrix @ A_dense @ ones
         
         # Normalize if requested

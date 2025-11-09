@@ -325,3 +325,398 @@ def compute_all_initial_partner_status(initial_ties_with_cent: pd.DataFrame,
     
     return result_df
 
+
+def calculate_initial_period_variables(initial_year_df: pd.DataFrame,
+                                      firm_vars_df: pd.DataFrame,
+                                      market_heat_df: pd.DataFrame = None,
+                                      new_venture_demand_df: pd.DataFrame = None,
+                                      imprinting_period: int = 3,
+                                      firm_col: str = 'firmname',
+                                      year_col: str = 'year') -> pd.DataFrame:
+    """
+    Calculate firm-level variables during initial period (t1~t3) for imprinting analysis.
+    
+    This function aggregates firm-year level variables during the imprinting period
+    (initial_year to initial_year + imprinting_period - 1) to create initial_xxx variables.
+    
+    Variables calculated:
+    - initial_early_stage_ratio: Average early stage ratio during t1~t3
+    - initial_industry_blau: Average industry diversity (Blau index) during t1~t3
+    - initial_inv_num: Total investment count during t1~t3
+    - initial_inv_amt: Total investment amount during t1~t3
+    - initial_firmage: Firm age at t1 (initial_year)
+    - initial_market_heat: Average market heat during t1~t3 (if provided)
+    - initial_new_venture_demand: Average new venture demand during t1~t3 (if provided)
+    
+    Parameters
+    ----------
+    initial_year_df : pd.DataFrame
+        DataFrame with columns: [firmname, initial_year]
+    firm_vars_df : pd.DataFrame
+        Firm-year level variables (must include: firmname, year, early_stage_ratio,
+        industry_blau, inv_num, inv_amt, firmage)
+    market_heat_df : pd.DataFrame, optional
+        Year-level market heat data (columns: year, market_heat)
+    new_venture_demand_df : pd.DataFrame, optional
+        Year-level new venture demand data (columns: year, new_venture_demand)
+    imprinting_period : int
+        Number of years in imprinting period (default: 3, i.e., t1~t3)
+    firm_col : str
+        Column name for firm identifier
+    year_col : str
+        Column name for year
+        
+    Returns
+    -------
+    pd.DataFrame
+        Firm-level data with initial_xxx variables
+        Columns: firmname, initial_year, initial_early_stage_ratio, initial_industry_blau,
+        initial_inv_num, initial_inv_amt, initial_firmage, initial_market_heat,
+        initial_new_venture_demand
+    """
+    logger.info("=" * 80)
+    logger.info("Calculating Initial Period Variables (t1~t3)...")
+    logger.info("=" * 80)
+    
+    result = initial_year_df[[firm_col, 'initial_year']].copy()
+    
+    # Required firm variables
+    required_vars = ['early_stage_ratio', 'industry_blau', 'inv_num', 'inv_amt', 'firmage']
+    missing_vars = [v for v in required_vars if v not in firm_vars_df.columns]
+    
+    if missing_vars:
+        logger.warning(f"Missing required variables in firm_vars_df: {missing_vars}")
+        logger.warning("Setting corresponding initial_xxx variables to NaN")
+    
+    # Step 1: Calculate initial period aggregations for each firm (vectorized)
+    logger.info(f"\nStep 1: Aggregating firm variables during imprinting period (t1~t3)...")
+    
+    logger.info(f"  Input data:")
+    logger.info(f"    - initial_year_df: {len(initial_year_df)} firms")
+    logger.info(f"    - firm_vars_df: {len(firm_vars_df)} firm-year observations")
+    logger.info(f"    - firm_vars_df year range: {firm_vars_df[year_col].min():.0f} ~ {firm_vars_df[year_col].max():.0f}")
+    
+    # Merge initial_year info into firm_vars_df for vectorized filtering
+    # Use left join to preserve all firms in initial_year_df
+    firm_vars_with_init = firm_vars_df.merge(
+        initial_year_df[[firm_col, 'initial_year']],
+        on=firm_col,
+        how='right'  # Right join to preserve all firms in initial_year_df
+    )
+    
+    logger.info(f"  After merge: {len(firm_vars_with_init)} firm-year observations")
+    
+    # Filter: year must be in [initial_year, initial_year + imprinting_period - 1]
+    firm_vars_with_init['t3'] = firm_vars_with_init['initial_year'] + imprinting_period - 1
+    period_mask = (
+        (firm_vars_with_init[year_col] >= firm_vars_with_init['initial_year']) &
+        (firm_vars_with_init[year_col] <= firm_vars_with_init['t3'])
+    )
+    period_data = firm_vars_with_init[period_mask].copy()
+    
+    logger.info(f"  Period data (t1~t3): {len(period_data)} firm-year observations")
+    logger.info(f"  Unique firms with period data: {period_data[firm_col].nunique()}")
+    
+    # Aggregate by firm and initial_year
+    agg_dict = {}
+    
+    # Average for ratios and diversity
+    if 'early_stage_ratio' in period_data.columns:
+        agg_dict['early_stage_ratio'] = 'mean'
+    if 'industry_blau' in period_data.columns:
+        agg_dict['industry_blau'] = 'mean'
+    
+    # Sum for investment counts and amounts
+    if 'inv_num' in period_data.columns:
+        agg_dict['inv_num'] = 'sum'
+    if 'inv_amt' in period_data.columns:
+        agg_dict['inv_amt'] = 'sum'
+    
+    # Group by firm and initial_year
+    if agg_dict:
+        initial_vars_df = period_data.groupby([firm_col, 'initial_year']).agg(agg_dict).reset_index()
+        
+        # Rename columns
+        rename_dict = {
+            'early_stage_ratio': 'initial_early_stage_ratio',
+            'industry_blau': 'initial_industry_blau',
+            'inv_num': 'initial_inv_num',
+            'inv_amt': 'initial_inv_amt'
+        }
+        initial_vars_df = initial_vars_df.rename(columns=rename_dict)
+    else:
+        # No matching columns
+        initial_vars_df = initial_year_df[[firm_col, 'initial_year']].copy()
+        initial_vars_df['initial_early_stage_ratio'] = np.nan
+        initial_vars_df['initial_industry_blau'] = np.nan
+        initial_vars_df['initial_inv_num'] = 0
+        initial_vars_df['initial_inv_amt'] = 0
+    
+    # Add firmage at t1 (initial_year) - need separate merge
+    firmage_at_t1 = firm_vars_df[
+        firm_vars_df[year_col].isin(initial_year_df['initial_year'])
+    ].merge(
+        initial_year_df[[firm_col, 'initial_year']],
+        left_on=[firm_col, year_col],
+        right_on=[firm_col, 'initial_year'],
+        how='inner'
+    )
+    
+    if 'firmage' in firmage_at_t1.columns and len(firmage_at_t1) > 0:
+        firmage_df = firmage_at_t1[[firm_col, 'initial_year', 'firmage']].drop_duplicates(subset=[firm_col, 'initial_year'])
+        firmage_df = firmage_df.rename(columns={'firmage': 'initial_firmage'})
+        initial_vars_df = initial_vars_df.merge(firmage_df, on=[firm_col, 'initial_year'], how='left')
+    else:
+        initial_vars_df['initial_firmage'] = np.nan
+    
+    # Fill missing values
+    if 'initial_inv_num' in initial_vars_df.columns:
+        initial_vars_df['initial_inv_num'] = initial_vars_df['initial_inv_num'].fillna(0)
+    if 'initial_inv_amt' in initial_vars_df.columns:
+        initial_vars_df['initial_inv_amt'] = initial_vars_df['initial_inv_amt'].fillna(0)
+    
+    # Merge with result
+    result = result.merge(initial_vars_df, on=[firm_col, 'initial_year'], how='left')
+    
+    logger.info(f"  Calculated initial period variables for {len(result)} firms")
+    logger.info(f"  Variables: early_stage_ratio, industry_blau, inv_num, inv_amt, firmage")
+    
+    # Step 2: Add market-level variables (if provided) - vectorized
+    if market_heat_df is not None and 'market_heat' in market_heat_df.columns:
+        logger.info(f"\nStep 2: Adding initial_market_heat (vectorized)...")
+        logger.info(f"  market_heat_df: {len(market_heat_df)} year observations")
+        logger.info(f"  market_heat_df year range: {market_heat_df[year_col].min():.0f} ~ {market_heat_df[year_col].max():.0f}")
+        
+        # Expand initial_year_df to include all years in imprinting period
+        init_expanded = initial_year_df.copy()
+        init_expanded['t3'] = init_expanded['initial_year'] + imprinting_period - 1
+        
+        # Create year range for each firm
+        expanded_list = []
+        for _, row in init_expanded.iterrows():
+            t1 = int(row['initial_year'])
+            t3 = int(row['t3'])
+            for year in range(t1, t3 + 1):
+                expanded_list.append({
+                    firm_col: row[firm_col],
+                    'initial_year': t1,
+                    year_col: year
+                })
+        
+        expanded_df = pd.DataFrame(expanded_list)
+        logger.info(f"  Expanded to {len(expanded_df)} firm-year observations")
+        
+        # Merge with market heat
+        expanded_with_heat = expanded_df.merge(
+            market_heat_df[[year_col, 'market_heat']],
+            on=year_col,
+            how='left'
+        )
+        
+        logger.info(f"  After merge: {len(expanded_with_heat)} observations")
+        logger.info(f"  Non-null market_heat: {expanded_with_heat['market_heat'].notna().sum()}")
+        
+        # Aggregate by firm and initial_year
+        market_heat_period_df = expanded_with_heat.groupby([firm_col, 'initial_year'])['market_heat'].mean().reset_index()
+        market_heat_period_df = market_heat_period_df.rename(columns={'market_heat': 'initial_market_heat'})
+        
+        logger.info(f"  Aggregated to {len(market_heat_period_df)} firms")
+        logger.info(f"  Non-null initial_market_heat: {market_heat_period_df['initial_market_heat'].notna().sum()}")
+        
+        result = result.merge(market_heat_period_df, on=[firm_col, 'initial_year'], how='left')
+        logger.info(f"  Added initial_market_heat for {len(result)} firms")
+    else:
+        logger.info(f"\nStep 2: Skipping initial_market_heat (not provided)")
+        logger.info(f"  market_heat_df is None: {market_heat_df is None}")
+        if market_heat_df is not None:
+            logger.info(f"  market_heat_df columns: {market_heat_df.columns.tolist()}")
+        result['initial_market_heat'] = np.nan
+    
+    # Step 3: Add new venture demand (if provided) - vectorized
+    if new_venture_demand_df is not None and 'new_venture_demand' in new_venture_demand_df.columns:
+        logger.info(f"\nStep 3: Adding initial_new_venture_demand (vectorized)...")
+        logger.info(f"  new_venture_demand_df: {len(new_venture_demand_df)} year observations")
+        logger.info(f"  new_venture_demand_df year range: {new_venture_demand_df[year_col].min():.0f} ~ {new_venture_demand_df[year_col].max():.0f}")
+        
+        # Expand initial_year_df to include all years in imprinting period
+        init_expanded = initial_year_df.copy()
+        init_expanded['t3'] = init_expanded['initial_year'] + imprinting_period - 1
+        
+        # Create year range for each firm
+        expanded_list = []
+        for _, row in init_expanded.iterrows():
+            t1 = int(row['initial_year'])
+            t3 = int(row['t3'])
+            for year in range(t1, t3 + 1):
+                expanded_list.append({
+                    firm_col: row[firm_col],
+                    'initial_year': t1,
+                    year_col: year
+                })
+        
+        expanded_df = pd.DataFrame(expanded_list)
+        logger.info(f"  Expanded to {len(expanded_df)} firm-year observations")
+        
+        # Merge with new venture demand
+        expanded_with_demand = expanded_df.merge(
+            new_venture_demand_df[[year_col, 'new_venture_demand']],
+            on=year_col,
+            how='left'
+        )
+        
+        logger.info(f"  After merge: {len(expanded_with_demand)} observations")
+        logger.info(f"  Non-null new_venture_demand: {expanded_with_demand['new_venture_demand'].notna().sum()}")
+        
+        # Aggregate by firm and initial_year
+        demand_period_df = expanded_with_demand.groupby([firm_col, 'initial_year'])['new_venture_demand'].mean().reset_index()
+        demand_period_df = demand_period_df.rename(columns={'new_venture_demand': 'initial_new_venture_demand'})
+        
+        logger.info(f"  Aggregated to {len(demand_period_df)} firms")
+        logger.info(f"  Non-null initial_new_venture_demand: {demand_period_df['initial_new_venture_demand'].notna().sum()}")
+        
+        result = result.merge(demand_period_df, on=[firm_col, 'initial_year'], how='left')
+        logger.info(f"  Added initial_new_venture_demand for {len(result)} firms")
+    else:
+        logger.info(f"\nStep 3: Skipping initial_new_venture_demand (not provided)")
+        logger.info(f"  new_venture_demand_df is None: {new_venture_demand_df is None}")
+        if new_venture_demand_df is not None:
+            logger.info(f"  new_venture_demand_df columns: {new_venture_demand_df.columns.tolist()}")
+        result['initial_new_venture_demand'] = np.nan
+    
+    # Summary statistics
+    logger.info("=" * 80)
+    logger.info("✅ Initial Period Variables Calculated!")
+    logger.info(f"   - Firms: {len(result)}")
+    logger.info(f"   - Variables: {len([c for c in result.columns if c.startswith('initial_')])} initial_xxx variables")
+    
+    # Log non-null counts
+    for col in result.columns:
+        if col.startswith('initial_') and col != 'initial_year':
+            non_null = result[col].notna().sum()
+            logger.info(f"   - {col}: {non_null:,} non-null ({non_null/len(result)*100:.1f}%)")
+    
+    logger.info("=" * 80)
+    
+    return result
+
+
+def calculate_initial_period_geographic_distances(initial_year_df: pd.DataFrame,
+                                                  copartner_dist_df: pd.DataFrame,
+                                                  imprinting_period: int = 3,
+                                                  firm_col: str = 'firmname',
+                                                  year_col: str = 'year') -> pd.DataFrame:
+    """
+    Calculate initial period (t1~t3) geographic distances to co-investment partners
+    
+    Aggregates co-partner distance variables during the imprinting period.
+    
+    Parameters
+    ----------
+    initial_year_df : pd.DataFrame
+        DataFrame with columns: [firmname, initial_year]
+    copartner_dist_df : pd.DataFrame
+        Firm-year level co-partner distance data (from calculate_vc_copartner_distances)
+    imprinting_period : int
+        Number of years in imprinting period (default: 3, i.e., t1~t3)
+    firm_col : str
+        Column name for firm identifier
+    year_col : str
+        Column name for year
+        
+    Returns
+    -------
+    pd.DataFrame
+        Firm-level data with initial_xxx geographic distance variables
+        Columns: firmname, initial_year, initial_geo_dist_copartner_mean,
+        initial_geo_dist_copartner_min, initial_geo_dist_copartner_max,
+        initial_geo_dist_copartner_median, initial_geo_dist_copartner_weighted_mean,
+        initial_geo_dist_copartner_std
+    """
+    logger.info("=" * 80)
+    logger.info("Calculating Initial Period Co-Partner Geographic Distances (t1~t3)...")
+    logger.info("=" * 80)
+    
+    result = initial_year_df[[firm_col, 'initial_year']].copy()
+    
+    # Distance columns to aggregate (excluding median)
+    dist_cols = [col for col in copartner_dist_df.columns 
+                if col.startswith('geo_dist_copartner') and 
+                col not in [firm_col, year_col] and 
+                'median' not in col]
+    
+    if not dist_cols:
+        logger.warning("No co-partner distance columns found in copartner_dist_df")
+        for col in ['geo_dist_copartner_mean', 'geo_dist_copartner_min', 'geo_dist_copartner_max',
+                   'geo_dist_copartner_weighted_mean', 'geo_dist_copartner_std']:
+            result[f'initial_{col}'] = np.nan
+        return result
+    
+    logger.info(f"  Aggregating {len(dist_cols)} distance variables during imprinting period")
+    
+    # Aggregate distances for each firm during t1~t3 (vectorized)
+    logger.info("  Aggregating distances (vectorized)...")
+    
+    logger.info(f"  Input data:")
+    logger.info(f"    - initial_year_df: {len(initial_year_df)} firms")
+    logger.info(f"    - copartner_dist_df: {len(copartner_dist_df)} firm-year observations")
+    if len(copartner_dist_df) > 0:
+        logger.info(f"    - copartner_dist_df year range: {copartner_dist_df[year_col].min():.0f} ~ {copartner_dist_df[year_col].max():.0f}")
+    
+    # Merge initial_year info into copartner_dist_df for vectorized filtering
+    # Use right join to preserve all firms in initial_year_df
+    copartner_with_init = copartner_dist_df.merge(
+        initial_year_df[[firm_col, 'initial_year']],
+        on=firm_col,
+        how='right'  # Right join to preserve all firms in initial_year_df
+    )
+    
+    logger.info(f"  After merge: {len(copartner_with_init)} firm-year observations")
+    
+    # Filter: year must be in [initial_year, initial_year + imprinting_period - 1]
+    copartner_with_init['t3'] = copartner_with_init['initial_year'] + imprinting_period - 1
+    period_mask = (
+        (copartner_with_init[year_col] >= copartner_with_init['initial_year']) &
+        (copartner_with_init[year_col] <= copartner_with_init['t3'])
+    )
+    period_data = copartner_with_init[period_mask].copy()
+    
+    logger.info(f"  Period data (t1~t3): {len(period_data)} firm-year observations")
+    logger.info(f"  Unique firms with period data: {period_data[firm_col].nunique()}")
+    
+    # Aggregate by firm and initial_year (mean for all distance statistics)
+    if len(period_data) > 0 and dist_cols:
+        agg_dict = {col: 'mean' for col in dist_cols if col in period_data.columns}
+        
+        if agg_dict:
+            initial_dist_df = period_data.groupby([firm_col, 'initial_year']).agg(agg_dict).reset_index()
+            
+            # Rename columns
+            rename_dict = {col: f'initial_{col}' for col in dist_cols if col in initial_dist_df.columns}
+            initial_dist_df = initial_dist_df.rename(columns=rename_dict)
+        else:
+            # No matching columns
+            initial_dist_df = initial_year_df[[firm_col, 'initial_year']].copy()
+            for col in dist_cols:
+                initial_dist_df[f'initial_{col}'] = np.nan
+    else:
+        # No data in imprinting period
+        initial_dist_df = initial_year_df[[firm_col, 'initial_year']].copy()
+        for col in dist_cols:
+            initial_dist_df[f'initial_{col}'] = np.nan
+    
+    # Merge with result
+    result = result.merge(initial_dist_df, on=[firm_col, 'initial_year'], how='left')
+    
+    logger.info(f"✅ Calculated initial period distances for {len(result)} firms")
+    logger.info(f"   Variables: {len([c for c in result.columns if c.startswith('initial_geo_dist_copartner')])} initial_xxx variables")
+    
+    # Log non-null counts
+    for col in result.columns:
+        if col.startswith('initial_geo_dist_copartner'):
+            non_null = result[col].notna().sum()
+            logger.info(f"   - {col}: {non_null:,} non-null ({non_null/len(result)*100:.1f}%)")
+    
+    logger.info("=" * 80)
+    
+    return result
+

@@ -33,9 +33,12 @@
   - 각 t의 파트너 중심성(5년 래그 윈도우) 계산 병합
   - 파트너별 시간 평균 → 파트너 집계(Mean/Max/Min)
 - `vc_analysis/variables/firm_variables.py`
-  - `firmage`, `industry_blau`(comindmnr), `perf_*`(당해 연도), `early_stage_ratio`, `firm_hq`(CA/MA), `inv_amt`, `inv_num`
+  - `firmage`, `industry_blau`(comindmnr), `perf_*`(당해 연도), `early_stage_ratio`, `firm_hq`(CA/MA), `firm_hq_CA`, `firm_hq_MA`, `firm_hq_NY`, `inv_amt`, `inv_num`
   - `fill_missing_performance_with_zero(df, ...)` 제공
   - **VC Reputation**: 6개 구성 변수 + Z-score 표준화 + Min-Max 스케일링 [0.01, 100]
+  - **Market Heat**: Industry-level 변수, 과거 3년 대비 당해 연도 fund raising 상대적 활성도 (ln ratio)
+  - **New Venture Funding Demand**: Industry-level 변수, 당해 연도 첫 라운드 US 벤처 개수 (ln, current year, panel 분석 시 lagging 필요)
+  - **Years Since Initial Network**: `years_since_init = year - initial_year` (event-time 기준 분석용)
     - `rep_portfolio_count`: [t-4, t] 기간 동안 투자한 unique portfolio companies 수
     - `rep_total_invested`: [t-4, t] 기간 동안 총 투자 금액
     - `rep_avg_fum`: t 시점에서 관리 중인 fund들의 평균 size (fundiniclosing 고려)
@@ -76,11 +79,57 @@
 - 대상: `initial_*_{mean,max,min}`(8개 중심성 × 3개 집계), `initial_year`, `n_initial_partners`, `n_partner_years`
 - `initial_year`: 전체 역사(Full History)에서의 진짜 첫 연결 연도
 - 임프린팅 기간: t1~t3(3개년), 각 t의 파트너 중심성은 [t−TIME_WINDOW, t−1] 래그 네트워크에서 산출
-- 집계: 파트너별 시간 평균 → 파트너 간 mean/max/min(“partner-weighted” 의미 유지)
+- 집계: 파트너별 시간 평균 → 파트너 간 mean/max/min("partner-weighted" 의미 유지)
 - 회귀 가이드(식별 주의):
   - Firm FE 사용 시: initial_*는 firm-level 상수 → 완전 공선성으로 식별 불가(모형에서 떨어짐)
   - 대안: firm FE 미사용 + time FE, RE, cohort-by-year FE, 혹은 initial_* × year 상호작용 등 설계
   - 코호트 외 초기연도(예: 1985)인 경우: initial_*는 결측이 정상이며, 이는 설계 상 Control 그룹 해석과 정합
+
+#### Initial Status Missing 플래그 (6개 컬럼)
+
+**목적**: `initial_*` 변수가 NaN인 이유를 분류하여 분석에서 적절히 처리
+
+| 컬럼명 | Criticality | 정의 | 분석 처리 |
+|--------|-------------|------|-----------|
+| `initial_status_missing` | Summary | `initial_*` 컬럼들이 모두 NaN인 경우 (종합 플래그) | 위 5개 중 하나라도 1이면 1 |
+| `initial_missing_outside_cohort` | **Low** | 코호트 밖 초기연도<br>- Full history에서 `initial_year_full`은 있지만 START_YEAR~END_YEAR 범위 밖<br>- `initial_year`는 NaN | ✅ **분석 포함 가능**<br>- 설계상 정상 (Control 그룹)<br>- `initial_*`는 NaN 유지 |
+| `initial_missing_no_partners` | **Medium** | 설립 시점에 파트너가 없음<br>- `initial_year`는 있지만 `n_initial_partners`나 `n_partner_years`가 0이거나 NaN<br>- 또는 `initial_ties_df`에 해당 firm이 없음 | ⚠️ **조건부 포함**<br>- "Solo investment" 그룹으로 해석 가능<br>- 분석 포함 가능하나 해석 주의 |
+| `initial_missing_no_centrality` | **High** | 파트너는 있지만 중심성 값이 모두 NaN<br>- `initial_year`는 있고 파트너도 있지만 `initial_*` 컬럼들이 모두 NaN | ❌ **제외 고려**<br>- 데이터 문제 가능성 (매칭/계산 오류)<br>- 제외 또는 별도 조사 필요 |
+| `initial_missing_other` | **High** | 위 세 가지에 해당하지 않는 기타 케이스 | ❌ **제외 고려**<br>- 원인 불명, 조사 필요<br>- 제외 또는 별도 조사 필요 |
+| `rep_missing_fund_data` | **Medium** | VC Reputation 변수 중 fund 기반 변수 누락<br>- `rep_avg_fum`, `rep_funds_raised`, `fundingAge` 중 하나라도 NaN | ⚠️ **조건부 포함**<br>- 최종 샘플링 시 제외 가능<br>- Fund 데이터 없이도 분석 가능 (round 기반 변수는 존재) |
+
+**Criticality 기반 샘플링 가이드**:
+- **Low + Medium 포함**: `initial_missing_outside_cohort`, `initial_missing_no_partners`, `rep_missing_fund_data` 포함
+- **High 제외**: `initial_missing_no_centrality`, `initial_missing_other` 제외
+- **권장 필터**: `analysis_df[(analysis_df['initial_missing_no_centrality'] == 0) & (analysis_df['initial_missing_other'] == 0)]`
+
+#### Initial Period Variables (Firm-Level Constant, t1~t3 기간 투자 행위/특성)
+- `initial_early_stage_ratio`: t1~t3 기간 동안의 평균 early stage 투자 비율
+- `initial_industry_blau`: t1~t3 기간 동안의 평균 산업 다양성 (Blau index)
+- `initial_inv_num`: t1~t3 기간 동안의 총 투자 횟수 (합계)
+- `initial_inv_amt`: t1~t3 기간 동안의 총 투자 금액 (합계)
+- `initial_firmage`: t1 시점의 조직 나이 (initial_year에서의 firmage)
+- `initial_market_heat`: t1~t3 기간 동안의 평균 market heat
+- `initial_new_venture_demand`: t1~t3 기간 동안의 평균 new venture demand
+- `initial_geo_dist_copartner_*` (6개 변수): t1~t3 기간 동안의 평균 공동 투자 파트너 거리
+  - `initial_geo_dist_copartner_mean`: 평균 거리
+  - `initial_geo_dist_copartner_min`: 최소 거리
+  - `initial_geo_dist_copartner_max`: 최대 거리
+  - `initial_geo_dist_copartner_median`: 중앙값 거리
+  - `initial_geo_dist_copartner_weighted_mean`: 가중 평균 거리
+  - `initial_geo_dist_copartner_std`: 거리 표준편차
+
+**계산 방식**:
+- Firm-year 변수: t1~t3 기간 동안 평균(비율/다양성) 또는 합계(투자 횟수/금액)
+- Market-level 변수: t1~t3 기간 동안 평균
+- Firm age: t1 시점 값 (초기 시점 조직 나이)
+- Geographic distances: t1~t3 기간 동안의 firm-year level co-partner 거리 변수들의 평균
+
+**Imprinting 효과 해석**:
+- 초기 투자 행위/특성이 이후 VC firm의 투자 패턴에 지속적 영향을 미칠 수 있음
+- 예: 초기 early stage 투자 비율이 높으면 이후에도 early stage 투자 선호도가 높을 수 있음
+- 초기 기간 동안의 공동 투자 파트너와의 지리적 거리가 이후 네트워크 형성에 지속적 영향을 미칠 수 있음
+- 예: 초기에 가까운 거리의 파트너와 투자한 VC는 이후에도 지역적 네트워크를 유지할 수 있음
 
 ### 3) Firm Basics (Firm-Year)
 - `firmage = year − founding_year`(음수 0 캡)
@@ -88,7 +137,79 @@
 - `perf_*`: 당해 연도만, 매칭 안 된 firm-year는 머지 후 NaN → 분석 전 0-치환 권장(`fill_missing_performance_with_zero`)
 - `early_stage_ratio`: 설정된 Stage set 평균(연도별)
 - `inv_amt`, `inv_num`: 연도별 합/건수
-- `firm_hq`: CA/MA 더미(firm-level → 모든 연도에 병합)
+- `firm_hq`, `firm_hq_CA`, `firm_hq_MA`, `firm_hq_NY`: HQ 더미 변수 (firm-level → 모든 연도에 병합)
+  - `firm_hq`: CA 또는 MA = 1 (기존 변수, 하위 호환성 유지)
+  - `firm_hq_CA`: California = 1
+  - `firm_hq_MA`: Massachusetts = 1
+  - `firm_hq_NY`: New York = 1
+
+### 3-1) Geographic Distance (Firm-Year Level)
+- **VC-Company 거리**: VC firm과 투자한 회사 간 물리적 거리 (ZIP 코드 기반 Haversine 거리)
+  - `geo_dist_company_mean`: 평균 거리
+  - `geo_dist_company_min`: 최소 거리
+  - `geo_dist_company_max`: 최대 거리
+  - `geo_dist_company_median`: 중앙값 거리 (추천: 이상치에 덜 민감)
+  - `geo_dist_company_weighted_mean`: 투자 금액 가중 평균 거리
+  - `geo_dist_company_std`: 거리 표준편차 (추천: 거리 분산 측정)
+
+- **VC-Co-Partner 거리**: VC firm과 공동 투자 파트너 간 물리적 거리
+  - `geo_dist_copartner_mean`: 평균 거리
+  - `geo_dist_copartner_min`: 최소 거리
+  - `geo_dist_copartner_max`: 최대 거리
+  - `geo_dist_copartner_median`: 중앙값 거리 (추천: 이상치에 덜 민감)
+  - `geo_dist_copartner_weighted_mean`: 투자 금액 가중 평균 거리
+  - `geo_dist_copartner_std`: 거리 표준편차 (추천: 거리 분산 측정)
+
+**계산 방식**:
+- ZIP 코드 정규화: 5자리 문자열로 변환 (leading zeros 처리)
+- ZIP → 위경도 변환: `uszipcode` 라이브러리 사용 (없으면 빈 데이터베이스 반환)
+- Haversine 공식: 지구 표면의 대원 거리 계산 (단위: km)
+- 집계: Firm-year 기준으로 평균/최소/최대/중앙값/표준편차 계산
+- 가중 평균: 투자 금액(`RoundAmountDisclosedThou`)으로 가중
+
+**추천 변수**:
+- **중앙값 (median)**: 이상치에 덜 민감하여 평균보다 robust
+- **가중 평균 (weighted_mean)**: 큰 투자에 더 많은 가중치 부여
+- **표준편차 (std)**: 거리 분산 측정 (지리적 집중도/분산도)
+
+### 3-2) Market Heat (Industry-Year Level)
+- **정의**: VC fund raising 활동의 상대적 활성도 측정 (industry-level)
+- **공식**: `Market heat_t = ln((VC funds raised_t × 3) / Σ_{k=t-3}^{t-1} VC funds raised_k)`
+  - 분자: 당해 연도(t) unique VC fund 개수 × 3
+  - 분모: 과거 3년(t-3, t-2, t-1) VC fund 개수 합계
+- **해석**:
+  - `market_heat > 0`: Hot market (활발한 시장)
+  - `market_heat < 0`: Cold market (침체된 시장)
+- **계산 방식**:
+  - `fund_df`에서 연도별(`fundyear`) unique `fundname` 개수 계산
+  - 과거 3년 합계는 `shift(1).rolling(window=3)`로 계산 (t-3 ~ t-1)
+  - 분모=0 또는 ratio≤0인 경우 `NaN` 처리
+- **통합**: Industry-level 변수이므로 같은 연도면 모든 firm-year에 동일한 값으로 merge
+- **함수**: `calculate_market_heat(fund_df, year_col='year', fundyear_col='fundyear', fundname_col='fundname')`
+
+### 3-3) New Venture Funding Demand (Industry-Year Level, Current Year)
+- **정의**: VC 펀딩 수요 측정 (industry-level, current year)
+- **공식**: `new_venture_demand_t = ln(count of first-round US ventures in year t)`
+  - 기준: 미국에서 첫 라운드 VC 펀딩을 받은 새로운 벤처의 총 개수
+  - 시점: 당해 연도(current calendar year, t) - **Raw 데이터셋이므로 lagged 아님**
+  - 자연 로그 변환
+- **계산 방식**:
+  - `round_df`에서 `RoundNumber == min(RoundNumber)` per company로 첫 라운드 식별
+  - `company_df`와 merge하여 `comnation == 'United States'` 필터링
+  - 연도별 unique `comname` 개수 계산 (당해 연도 기준)
+  - 자연 로그 변환 (`ln(count)`)
+- **통합**: Industry-level 변수이므로 같은 연도면 모든 firm-year에 동일한 값으로 merge
+- **Panel 분석 시 주의**: Raw 데이터셋이므로 회귀 분석 시 lagging 필요 (예: year t-1 사용)
+- **함수**: `calculate_new_venture_funding_demand(round_df, company_df, year_col='year', roundnumber_col='RoundNumber', ...)`
+
+### 3-4) Years Since Initial Network (Firm-Year Level)
+- **정의**: Initial network 형성 이후 경과 연수
+- **공식**: `years_since_init = year - initial_year`
+- **계산 방식**:
+  - `initial_year`가 있는 경우: `year - initial_year`
+  - `initial_year`가 없는 경우: `NaN` (established firms)
+- **용도**: Panel 분석 시 event-time 기준 분석에 사용 (예: years since initial network = 0, 1, 2, ...)
+- **변수명**: `years_since_init` (짧고 직관적)
 
 ### 4) VC Reputation (Firm-Year)
 - **구성 변수** (6개, 5-year rolling window [t-4, t]):
@@ -149,6 +270,30 @@ flowchart TD
 <a id="discussion-2025-10-28"></a>
 ## 🧩 논의 및 합의 사항 (2025-10-28)
 
+### 추가 업데이트 (Missing 플래그 Criticality 분류 - 2025-11-07)
+- **Initial Status Missing 플래그 정의 및 Criticality 분류**: 6개 missing 플래그 컬럼의 정의와 분석상 중요도를 Low/Medium/High로 분류
+  - Low Criticality: `initial_missing_outside_cohort` (설계상 정상, Control 그룹)
+  - Medium Criticality: `initial_missing_no_partners`, `rep_missing_fund_data` (조건부 포함)
+  - High Criticality: `initial_missing_no_centrality`, `initial_missing_other` (제외 고려)
+  - Summary: `initial_status_missing` (종합 플래그)
+- **샘플링 가이드**: Criticality 기반 필터링 권장사항 추가 (High 제외, Low+Medium 포함)
+
+### 추가 업데이트 (Market Heat 및 New Venture Funding Demand 변수 추가 - 2025-11-07)
+- **Market Heat 변수 구현**: Industry-level 변수로 VC fund raising 활동의 상대적 활성도 측정
+  - 공식: `Market heat_t = ln((VC funds raised_t × 3) / Σ_{k=t-3}^{t-1} VC funds raised_k)`
+  - 해석: >0 = Hot market, <0 = Cold market
+  - Edge cases: 분모=0 또는 ratio≤0인 경우 `NaN` 처리
+  - 함수: `calculate_market_heat(fund_df, ...)` → year-level 출력, firm-year 패널에 merge 시 같은 연도면 동일 값
+- **New Venture Funding Demand 변수 구현**: Industry-level 변수로 VC 펀딩 수요 측정 (current year, NOT lagged)
+  - 공식: `new_venture_demand_t = ln(count of first-round US ventures in year t)`
+  - 기준: RoundNumber == min(RoundNumber) per company로 첫 라운드 식별, US만 필터링
+  - 시점: 당해 연도 값 사용 (Raw 데이터셋이므로 lagged 아님, panel 분석 시 lagging 필요)
+  - 함수: `calculate_new_venture_funding_demand(round_df, company_df, ...)` → year-level 출력, firm-year 패널에 merge 시 같은 연도면 동일 값
+- **Years Since Initial Network 변수 추가**: `years_since_init = year - initial_year`
+  - 용도: Event-time 기준 분석 (years since initial network = 0, 1, 2, ...)
+  - 변수명: `years_since_init` (짧고 직관적)
+- **HQ 더미 변수 확장**: `firm_hq_CA`, `firm_hq_MA`, `firm_hq_NY` 추가 (기존 `firm_hq` 유지)
+
 ### 추가 업데이트 (VC Reputation 구현 - 2025-11-07)
 - **VC Reputation Index 구현**: 6개 구성 변수를 5-year rolling window [t-4, t]로 계산
   - 변수 1-2, 4: Portfolio count, Total invested, Funds raised (round 데이터 기반)
@@ -159,6 +304,18 @@ flowchart TD
 - **Missing 처리**: `rep_missing_fund_data` 플래그 추가 (fund 기반 변수 누락 시 1, 최종 샘플링 시 제외 가능)
 - **Merge 방식**: `how='left'` 사용 (round_df 기반 firm-year 구조 유지)
 - **파싱 모니터링**: fundiniclosing 파싱 실패 비율 로깅 추가
+
+### 추가 업데이트 (Geographic Distance 변수 추가 - 2025-11-07)
+- **Geographic Distance 변수 구현**: ZIP 코드 기반 Haversine 거리 계산
+  - **VC-Company 거리** (6개 변수): 평균, 최소, 최대, 중앙값, 가중 평균, 표준편차
+  - **VC-Co-Partner 거리** (6개 변수): 평균, 최소, 최대, 중앙값, 가중 평균, 표준편차
+  - **Initial Period Co-Partner 거리** (6개 변수): t1~t3 기간 동안의 공동 투자 파트너 거리 집계
+  - ZIP 코드 정규화: 5자리 문자열로 변환 (leading zeros 처리)
+  - ZIP → 위경도 변환: `uszipcode` 라이브러리 사용
+  - Haversine 공식: 지구 표면의 대원 거리 계산 (단위: km)
+  - 추천 변수: 중앙값 (robust), 가중 평균 (investment-weighted), 표준편차 (dispersion)
+  - 함수: `calculate_vc_company_distances()`, `calculate_vc_copartner_distances()` in `vc_analysis/distance/geographic.py`
+  - Initial period 함수: `calculate_initial_period_geographic_distances()` in `vc_analysis/network/imprinting.py`
 
 ### 추가 업데이트 (Final sampling + export)
 - 분석 가능 샘플 필터 추가: 연도/기본변수/네트워크(in_network)/초기상태/성과 조건을 토글로 구성하여 `analysis_df` 생성.
@@ -188,7 +345,7 @@ flowchart TD
 <a id="history"></a>
 ## 🕒 히스토리 (요약 타임라인)
 
-- 2025-11-07: VC Reputation Index 구현 완료 (6개 구성 변수, Z-score 표준화, Min-Max 스케일링), IPO 로직 수정 (투자는 과거, IPO는 [t-4, t]), Merge 방식 left join으로 변경, rep_missing_fund_data 플래그 추가, fundiniclosing 파싱 모니터링 추가.
+- 2025-11-07: Market Heat 변수 추가 (industry-level, 과거 3년 대비 당해 연도 fund raising 상대적 활성도, ln ratio), New Venture Funding Demand 변수 추가 (industry-level, lagged, 전년도 첫 라운드 US 벤처 개수 ln), HQ 더미 변수 확장 (firm_hq_CA, firm_hq_MA, firm_hq_NY 추가). Missing 플래그 Criticality 분류 완료 (6개 컬럼 정의 및 Low/Medium/High 분류, 샘플링 가이드 추가). VC Reputation Index 구현 완료 (6개 구성 변수, Z-score 표준화, Min-Max 스케일링), IPO 로직 수정 (투자는 과거, IPO는 [t-4, t]), Merge 방식 left join으로 변경, rep_missing_fund_data 플래그 추가, fundiniclosing 파싱 모니터링 추가. Geographic Distance 변수 추가 완료 (ZIP 코드 기반 Haversine 거리, VC-Company 6개 변수, VC-Co-Partner 6개 변수, Initial Period Co-Partner 거리 6개 변수, 추천 변수: median, weighted_mean, std).
 
 - 2025-10-28: 코호트 내 initial_* 결측 진단 및 재분류 제안(‘other’→‘no_partners’), 진단 셀 안정화(`initial_year_full` 보강), merge 기준 확정, centrality NA 후처리 가이드 반영.
 
@@ -232,5 +389,5 @@ refactor_v2/
 ---
 
 **최종 업데이트**: 2025-11-07  
-**분석 상태**: 데이터 준비 완료 (VC Reputation 포함), 분석 단계 진입 준비  
+**분석 상태**: 데이터 준비 완료 (VC Reputation, Market Heat, New Venture Funding Demand 포함), Years Since Initial Network 변수 추가 완료, Missing 플래그 Criticality 분류 완료, HQ 더미 변수 확장 완료, Initial Period Variables (7개) 추가 완료, Geographic Distance 변수 추가 완료 (VC-Company 6개, VC-Co-Partner 6개, Initial Period 6개), Raw 데이터셋 준비 완료 (panel 분석 시 lagging 필요), 분석 단계 진입 준비  
 **다음 미팅**: 회귀 분석 결과 검토

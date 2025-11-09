@@ -19,6 +19,153 @@
 
 ### Update (2025-11-07)
 
+**Market Heat and New Venture Funding Demand Variables**
+
+Added two industry-level macro variables:
+
+**Market Heat Variable**
+
+1. **Definition**: Measures relative activity of VC fund raising at industry level
+2. **Formula**: `Market heat_t = ln((VC funds raised_t × 3) / Σ_{k=t-3}^{t-1} VC funds raised_k)`
+   - Numerator: Current year (t) unique VC funds raised × 3
+   - Denominator: Sum of VC funds raised in antecedent 3 years (t-3, t-2, t-1)
+3. **Interpretation**:
+   - `market_heat > 0`: Hot market (active fund raising)
+   - `market_heat < 0`: Cold market (sluggish fund raising)
+4. **Implementation**:
+   - Function: `calculate_market_heat(fund_df, ...)` in `firm_variables.py`
+   - Output: Year-level data (year, market_heat columns)
+   - Edge cases: `NaN` if denominator = 0 or ratio ≤ 0
+   - Integration: Merge to firm-year panel by year (same value for all firms in same year)
+5. **Usage**: For Hypothesis 1 analysis (market heat effects on VC behavior)
+
+**New Venture Funding Demand Variable**
+
+Added New Venture Funding Demand calculation as an industry-level macro variable:
+
+1. **Definition**: Measures demand for VC funding based on the natural log of the total number of new ventures that received a first round of VC financing in the United States in the current calendar year
+2. **Formula**: `new_venture_demand_t = ln(count of first-round US ventures in year t)`
+   - First round identification: `RoundNumber == min(RoundNumber)` per company
+   - US filter: `comnation == 'United States'`
+   - Current year: Uses year t value (NOT lagged - this is raw dataset)
+   - Natural log transformation
+3. **Implementation**:
+   - Function: `calculate_new_venture_funding_demand(round_df, company_df, ...)` in `firm_variables.py`
+   - Output: Year-level data (year, new_venture_demand columns)
+   - Edge cases: `NaN` for zero count
+   - Integration: Merge to firm-year panel by year (same value for all firms in same year)
+4. **Usage**: Control variable for venture-side demand fluctuations
+5. **Note**: This is a RAW dataset variable. For panel analysis, lagging should be done during regression analysis (e.g., using year t-1 value)
+
+**Years Since Initial Network Variable**
+
+Added Years Since Initial Network calculation:
+
+1. **Definition**: Number of years since initial network formation
+2. **Formula**: `years_since_init = year - initial_year`
+3. **Implementation**:
+   - Calculated after merging all data into `final_df`
+   - `NaN` for firms without `initial_year` (established firms)
+4. **Usage**: Event-time based analysis (years since initial network = 0, 1, 2, ...)
+5. **Variable name**: `years_since_init` (short and intuitive)
+
+**Initial Period Variables (t1~t3 기간 투자 행위/특성)**
+
+Added 7 initial period variables that capture VC firm investment behavior and characteristics during the imprinting period (t1~t3):
+
+1. **`initial_early_stage_ratio`**: Average early stage investment ratio during t1~t3
+   - Imprinting effect: Initial investment style may have lasting influence on future investment patterns
+
+2. **`initial_industry_blau`**: Average industry diversity (Blau index) during t1~t3
+   - Imprinting effect: Initial industry portfolio may influence future diversity
+
+3. **`initial_inv_num`**: Total investment count during t1~t3 (sum)
+   - Imprinting effect: Initial activity/experience may influence future investment behavior
+
+4. **`initial_inv_amt`**: Total investment amount during t1~t3 (sum)
+   - Imprinting effect: Initial investment scale may influence future resource allocation
+
+5. **`initial_firmage`**: Firm age at t1 (initial_year)
+   - Imprinting effect: Organizational age at initial period may influence future behavior
+
+6. **`initial_market_heat`**: Average market heat during t1~t3
+   - Imprinting effect: Initial market conditions may influence future strategy
+
+7. **`initial_new_venture_demand`**: Average new venture demand during t1~t3
+   - Imprinting effect: Initial market demand may influence future investment patterns
+
+8. **`initial_geo_dist_copartner_*`** (6 variables): Average geographic distances to co-investment partners during t1~t3
+   - Variables: mean, min, max, median, weighted_mean, std
+   - Imprinting effect: Initial geographic proximity to partners may influence future network formation
+
+**Implementation**:
+- Function: `calculate_initial_period_variables()` in `vc_analysis/network/imprinting.py`
+- Function: `calculate_initial_period_geographic_distances()` in `vc_analysis/network/imprinting.py`
+- Notebook: `preprc_imprint.ipynb` Cell 5 (Step 3: Calculation, Step 4-1: Merge, Step 4-2: Geographic Distance Merge)
+- Calculation method:
+  - Firm-year variables: Average (ratios/diversity) or sum (investment counts/amounts) during t1~t3
+  - Market-level variables: Average during t1~t3
+  - Firm age: Value at t1 (initial_year)
+  - Geographic distances: Average of firm-year level co-partner distances during t1~t3
+
+**Geographic Distance Variables**
+
+Added geographic distance calculations based on ZIP codes using Haversine formula:
+
+1. **VC-Company Distances** (firm-year level):
+   - `geo_dist_company_mean`: Average distance to invested companies
+   - `geo_dist_company_min`: Minimum distance to invested companies
+   - `geo_dist_company_max`: Maximum distance to invested companies
+   - `geo_dist_company_median`: Median distance (recommended: robust to outliers)
+   - `geo_dist_company_weighted_mean`: Investment amount-weighted average distance
+   - `geo_dist_company_std`: Standard deviation of distances (recommended: measures distance dispersion)
+
+2. **VC-Co-Partner Distances** (firm-year level):
+   - `geo_dist_copartner_mean`: Average distance to co-investment partners
+   - `geo_dist_copartner_min`: Minimum distance to co-investment partners
+   - `geo_dist_copartner_max`: Maximum distance to co-investment partners
+   - `geo_dist_copartner_median`: Median distance (recommended: robust to outliers)
+   - `geo_dist_copartner_weighted_mean`: Investment amount-weighted average distance
+   - `geo_dist_copartner_std`: Standard deviation of distances (recommended: measures distance dispersion)
+
+3. **Initial Period Geographic Distances** (t1~t3):
+   - `initial_geo_dist_copartner_*`: All 6 co-partner distance variables aggregated during t1~t3
+
+**Implementation**:
+- Functions: `calculate_vc_company_distances()`, `calculate_vc_copartner_distances()` in `vc_analysis/distance/geographic.py`
+- Initial period function: `calculate_initial_period_geographic_distances()` in `vc_analysis/network/imprinting.py`
+- Notebook: `preprc_imprint.ipynb` Cell 4 (calculation), Cell 5 (merge)
+- ZIP code handling:
+  - Normalization: 5-digit string format with leading zeros
+  - Conversion: `uszipcode` library or pre-built database
+  - Haversine formula: Great-circle distance calculation (unit: km)
+- Recommended variables: Median (robust), weighted mean (investment-weighted), std (dispersion)
+
+**HQ Dummy Variables Expansion**
+
+Extended HQ location dummies to include individual state indicators:
+- `firm_hq_CA`: California = 1
+- `firm_hq_MA`: Massachusetts = 1
+- `firm_hq_NY`: New York = 1
+- `firm_hq`: CA or MA = 1 (kept for backward compatibility)
+
+**Missing Flags Criticality Classification**
+
+Added comprehensive documentation for 6 missing flag columns with criticality classification:
+
+1. **Flag Definitions**:
+   - `initial_status_missing`: Summary flag (1 if any `initial_*` is NaN)
+   - `initial_missing_outside_cohort`: Low criticality (design-consistent, Control group)
+   - `initial_missing_no_partners`: Medium criticality (solo investments, conditional inclusion)
+   - `initial_missing_no_centrality`: High criticality (data issue, consider exclusion)
+   - `initial_missing_other`: High criticality (unknown cause, consider exclusion)
+   - `rep_missing_fund_data`: Medium criticality (fund data missing, conditional inclusion)
+
+2. **Criticality-Based Sampling**:
+   - Low + Medium: Include in analysis
+   - High: Consider exclusion
+   - Recommended filter excludes High criticality flags
+
 **VC Reputation Index Implementation**
 
 Added comprehensive VC reputation calculation module with 6 component variables:
@@ -300,6 +447,24 @@ Kleiner Perkins   1973          7                   22.3                   45.0 
 Accel Partners    1985          3                   15.2                   28.0                  6.0
 ```
 
+**Step 7: Missing Flags and Criticality Classification**
+
+To handle cases where `initial_*` variables are NaN, 6 diagnostic flag columns are created:
+
+| Column | Criticality | Definition | Analysis Treatment |
+|--------|-------------|------------|-------------------|
+| `initial_status_missing` | Summary | All `initial_*` columns are NaN (comprehensive flag) | 1 if any of the 5 flags below is 1 |
+| `initial_missing_outside_cohort` | **Low** | Initial year outside cohort<br>- `initial_year_full` exists but outside START_YEAR~END_YEAR<br>- `initial_year` is NaN | ✅ **Include in analysis**<br>- Design-consistent (Control group)<br>- Keep `initial_*` as NaN |
+| `initial_missing_no_partners` | **Medium** | No partners at founding<br>- `initial_year` exists but `n_initial_partners` or `n_partner_years` is 0 or NaN<br>- Or firm not in `initial_ties_df` | ⚠️ **Conditional inclusion**<br>- Interpretable as "Solo investment" group<br>- Can include but interpret with caution |
+| `initial_missing_no_centrality` | **High** | Partners exist but all centrality values are NaN<br>- `initial_year` exists and partners exist but all `initial_*` columns are NaN | ❌ **Consider exclusion**<br>- Possible data issue (matching/calculation error)<br>- Exclude or investigate separately |
+| `initial_missing_other` | **High** | Other cases not covered above | ❌ **Consider exclusion**<br>- Unknown cause, needs investigation<br>- Exclude or investigate separately |
+| `rep_missing_fund_data` | **Medium** | Missing fund-based VC Reputation variables<br>- Any of `rep_avg_fum`, `rep_funds_raised`, `fundingAge` is NaN | ⚠️ **Conditional inclusion**<br>- Can exclude in final sampling<br>- Analysis possible without fund data (round-based variables exist) |
+
+**Criticality-Based Sampling Guide**:
+- **Include Low + Medium**: `initial_missing_outside_cohort`, `initial_missing_no_partners`, `rep_missing_fund_data`
+- **Exclude High**: `initial_missing_no_centrality`, `initial_missing_other`
+- **Recommended filter**: `analysis_df[(analysis_df['initial_missing_no_centrality'] == 0) & (analysis_df['initial_missing_other'] == 0)]`
+
 ---
 
 ## Research Design Rationale
@@ -493,9 +658,9 @@ reputation_df = firm_variables.calculate_vc_reputation(
 
 ---
 
-**Document Version**: 1.1  
+**Document Version**: 1.3  
 **Last Updated**: 2025-11-07  
-**Total Lines**: ~550
+**Total Lines**: ~650
 
 
 

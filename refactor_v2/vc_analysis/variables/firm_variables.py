@@ -6,10 +6,12 @@ This module calculates various firm-level characteristics including:
 - Investment diversity (Blau index by industry)
 - Performance metrics (all exits, IPO, M&A)
 - Early stage participation ratio
-- Firm HQ location (CA, MA dummy)
+- Firm HQ location (CA, MA, NY dummies)
 - Total investment amount (by year)
 - Total investment number (by year)
 - VC Reputation index (6-component index with z-score standardization)
+- Market Heat (industry-level, relative VC fund raising activity)
+- New Venture Funding Demand (industry-level, current year, NOT lagged)
 """
 
 import pandas as pd
@@ -448,11 +450,12 @@ def calculate_early_stage_ratio(round_df: pd.DataFrame,
 def calculate_firm_hq_dummy(firm_df: pd.DataFrame,
                             state_col: str = 'firmstate') -> pd.DataFrame:
     """
-    Calculate firm HQ dummy (1 if CA or MA, 0 otherwise)
+    Calculate firm HQ dummy variables (CA, MA, NY, and combined CA/MA)
     
-    CA (California) and MA (Massachusetts) are major VC hubs:
+    Major VC hubs:
     - Silicon Valley (CA)
     - Boston/Cambridge (MA)
+    - New York (NY)
     
     Parameters
     ----------
@@ -464,9 +467,9 @@ def calculate_firm_hq_dummy(firm_df: pd.DataFrame,
     Returns
     -------
     pd.DataFrame
-        Firm data with firm_hq column
+        Firm data with firm_hq, firm_hq_CA, firm_hq_MA, firm_hq_NY columns
     """
-    logger.info("Calculating firm HQ dummy (CA/MA)...")
+    logger.info("Calculating firm HQ dummy variables (CA/MA/NY)...")
     
     firm_hq = firm_df[['firmname']].drop_duplicates()
     
@@ -477,24 +480,42 @@ def calculate_firm_hq_dummy(firm_df: pd.DataFrame,
             how='left'
         )
         
-        # Get high-value states from constants
+        # Get high-value states from constants (CA, MA)
         high_value_states = (
             constants.FIRM_HQ_HIGH_VALUE_STATES['state_codes'] + 
             constants.FIRM_HQ_HIGH_VALUE_STATES['state_names']
         )
-        logger.info(f"  High-value states: {high_value_states}")
         
-        # Create dummy (1 if in high-value states)
+        # Define state mappings (codes and names)
+        ca_states = ['CA', 'California']
+        ma_states = ['MA', 'Massachusetts']
+        ny_states = ['NY', 'New York']
+        
+        logger.info(f"  High-value states (CA/MA): {high_value_states}")
+        logger.info(f"  Additional state (NY): {ny_states}")
+        
+        # Create individual state dummies
+        firm_hq['firm_hq_CA'] = firm_hq[state_col].isin(ca_states).astype(int)
+        firm_hq['firm_hq_MA'] = firm_hq[state_col].isin(ma_states).astype(int)
+        firm_hq['firm_hq_NY'] = firm_hq[state_col].isin(ny_states).astype(int)
+        
+        # Create combined dummy (1 if CA or MA, 0 otherwise) - keep for backward compatibility
         firm_hq['firm_hq'] = firm_hq[state_col].isin(high_value_states).astype(int)
         
         # Drop state column
         firm_hq = firm_hq.drop(columns=[state_col])
         
-        logger.info(f"Calculated HQ dummy for {len(firm_hq)} firms")
-        logger.info(f"  CA/MA firms: {firm_hq['firm_hq'].sum():.0f} ({firm_hq['firm_hq'].mean()*100:.1f}%)")
+        logger.info(f"Calculated HQ dummies for {len(firm_hq)} firms")
+        logger.info(f"  CA firms: {firm_hq['firm_hq_CA'].sum():.0f} ({firm_hq['firm_hq_CA'].mean()*100:.1f}%)")
+        logger.info(f"  MA firms: {firm_hq['firm_hq_MA'].sum():.0f} ({firm_hq['firm_hq_MA'].mean()*100:.1f}%)")
+        logger.info(f"  NY firms: {firm_hq['firm_hq_NY'].sum():.0f} ({firm_hq['firm_hq_NY'].mean()*100:.1f}%)")
+        logger.info(f"  CA/MA firms (combined): {firm_hq['firm_hq'].sum():.0f} ({firm_hq['firm_hq'].mean()*100:.1f}%)")
     else:
-        logger.warning(f"Column '{state_col}' not found. Setting firm_hq to NaN")
+        logger.warning(f"Column '{state_col}' not found. Setting all HQ dummies to NaN")
         firm_hq['firm_hq'] = np.nan
+        firm_hq['firm_hq_CA'] = np.nan
+        firm_hq['firm_hq_MA'] = np.nan
+        firm_hq['firm_hq_NY'] = np.nan
     
     return firm_hq
 
@@ -1359,6 +1380,327 @@ def calculate_vc_reputation(round_df: pd.DataFrame,
     logger.info(f"   - Unique firms: {result['firmname'].nunique()}")
     logger.info(f"   - Year range: {result[year_col].min()} - {result[year_col].max()}")
     logger.info(f"   - Reputation range: {result['VC_reputation'].min():.2f} - {result['VC_reputation'].max():.2f}")
+    logger.info("=" * 80)
+    
+    return result
+
+
+def calculate_market_heat(fund_df: pd.DataFrame,
+                          year_col: str = 'year',
+                          fundyear_col: str = 'fundyear',
+                          fundname_col: str = 'fundname') -> pd.DataFrame:
+    """
+    Calculate Market Heat at industry level
+    
+    Market Heat measures the relative activity of VC fund raising:
+    - Hot market: Market heat > 0
+    - Cold market: Market heat < 0
+    
+    Formula:
+    Market heat_t = ln((VC funds raised_t × 3) / Σ_{k=t-3}^{t-1} VC funds raised_k)
+    
+    Where:
+    - VC funds raised_t: Number of unique VC funds raised in year t (industry level)
+    - Denominator: Sum of VC funds raised in the antecedent 3 years (t-3, t-2, t-1)
+    
+    Note: The denominator uses shift(1) to calculate past 3 years, but the Market Heat
+    value itself is for the current year t (raw dataset).
+    
+    Parameters
+    ----------
+    fund_df : pd.DataFrame
+        Fund data with fundyear and fundname columns
+    year_col : str
+        Column name for year (for output)
+    fundyear_col : str
+        Column name for fund year
+    fundname_col : str
+        Column name for fund name (unique identifier)
+    
+    Returns
+    -------
+    pd.DataFrame
+        Year-level data with market_heat column
+        Columns: year, market_heat
+    """
+    logger.info("=" * 80)
+    logger.info("Calculating Market Heat (industry-level)...")
+    logger.info("=" * 80)
+    
+    # Check required columns
+    required_cols = [fundyear_col]
+    if fundname_col not in fund_df.columns:
+        logger.warning(f"Column '{fundname_col}' not found. Using row count instead.")
+        use_fundname = False
+    else:
+        use_fundname = True
+        required_cols.append(fundname_col)
+    
+    missing_cols = [col for col in required_cols if col not in fund_df.columns]
+    if missing_cols:
+        logger.error(f"Missing required columns: {missing_cols}")
+        logger.error("Cannot calculate Market Heat. Returning empty DataFrame.")
+        return pd.DataFrame({year_col: [], 'market_heat': []})
+    
+    # Step 1: Calculate annual fund counts (industry level)
+    logger.info("Step 1: Calculating annual fund counts...")
+    
+    if use_fundname:
+        # Count unique fundname per year
+        annual_funds = fund_df.groupby(fundyear_col)[fundname_col].nunique().reset_index()
+        annual_funds.columns = [fundyear_col, 'funds_raised']
+    else:
+        # Count rows per year (fallback)
+        annual_funds = fund_df.groupby(fundyear_col).size().reset_index(name='funds_raised')
+    
+    # Sort by year
+    annual_funds = annual_funds.sort_values(fundyear_col).reset_index(drop=True)
+    
+    logger.info(f"  Year range: {annual_funds[fundyear_col].min()} - {annual_funds[fundyear_col].max()}")
+    logger.info(f"  Total years: {len(annual_funds)}")
+    logger.info(f"  Mean funds per year: {annual_funds['funds_raised'].mean():.1f}")
+    
+    # Step 2: Calculate 3-year antecedent sum (t-3 ~ t-1)
+    logger.info("Step 2: Calculating 3-year antecedent sums...")
+    
+    # Create a complete year series for proper alignment
+    min_year = int(annual_funds[fundyear_col].min())
+    max_year = int(annual_funds[fundyear_col].max())
+    all_years = pd.DataFrame({fundyear_col: range(min_year, max_year + 1)})
+    
+    # Merge with annual funds (fill missing years with 0)
+    annual_funds_complete = all_years.merge(
+        annual_funds,
+        on=fundyear_col,
+        how='left'
+    )
+    annual_funds_complete['funds_raised'] = annual_funds_complete['funds_raised'].fillna(0)
+    
+    # Calculate rolling sum of previous 3 years (t-3, t-2, t-1)
+    # Shift by 1 to exclude current year, then rolling sum of 3 years
+    annual_funds_complete['funds_raised_sum_3yr'] = (
+        annual_funds_complete['funds_raised']
+        .shift(1)  # Exclude current year
+        .rolling(window=3, min_periods=1)  # Sum of t-3, t-2, t-1
+        .sum()
+    )
+    
+    # Step 3: Calculate Market Heat
+    logger.info("Step 3: Calculating Market Heat...")
+    
+    # Numerator: funds_raised_t × 3
+    annual_funds_complete['numerator'] = annual_funds_complete['funds_raised'] * 3
+    
+    # Denominator: sum of t-3 ~ t-1
+    denominator = annual_funds_complete['funds_raised_sum_3yr']
+    
+    # Calculate ratio
+    ratio = annual_funds_complete['numerator'] / denominator
+    
+    # Apply natural log (handle edge cases)
+    # NaN if denominator = 0 or ratio <= 0
+    market_heat = np.where(
+        (denominator > 0) & (ratio > 0),
+        np.log(ratio),
+        np.nan
+    )
+    
+    annual_funds_complete['market_heat'] = market_heat
+    
+    # Step 4: Prepare output
+    result = annual_funds_complete[[fundyear_col, 'market_heat']].copy()
+    result.columns = [year_col, 'market_heat']
+    
+    # Remove rows with NaN market_heat (edge cases)
+    result = result.dropna(subset=['market_heat'])
+    
+    # Log statistics
+    logger.info("=" * 80)
+    logger.info(f"✅ Market Heat calculated!")
+    logger.info(f"   - Year range: {result[year_col].min()} - {result[year_col].max()}")
+    logger.info(f"   - Valid years: {len(result)}")
+    logger.info(f"   - Market Heat range: {result['market_heat'].min():.3f} - {result['market_heat'].max():.3f}")
+    logger.info(f"   - Mean Market Heat: {result['market_heat'].mean():.3f}")
+    
+    # Count hot vs cold markets
+    hot_markets = (result['market_heat'] > 0).sum()
+    cold_markets = (result['market_heat'] < 0).sum()
+    logger.info(f"   - Hot markets (>0): {hot_markets} ({hot_markets/len(result)*100:.1f}%)")
+    logger.info(f"   - Cold markets (<0): {cold_markets} ({cold_markets/len(result)*100:.1f}%)")
+    logger.info("=" * 80)
+    
+    return result
+
+
+def calculate_new_venture_funding_demand(round_df: pd.DataFrame,
+                                        company_df: pd.DataFrame,
+                                        year_col: str = 'year',
+                                        roundnumber_col: str = 'RoundNumber',
+                                        comname_col: str = 'comname',
+                                        comnation_col: str = 'comnation',
+                                        us_nation: str = 'US') -> pd.DataFrame:
+    """
+    Calculate New Venture Funding Demand (current year, NOT lagged)
+    
+    Measures demand for VC funding based on the natural log of the total
+    number of new ventures that received a first round of VC financing in the
+    United States in the current calendar year.
+    
+    Note: This is a RAW dataset variable. For panel analysis, lagging should
+    be done during regression analysis (e.g., using year t-1 value).
+    
+    Formula:
+    new_venture_demand_t = ln(count of first-round ventures in year t)
+    
+    Where:
+    - First round: RoundNumber == min(RoundNumber) per company
+    - US only: comnation == 'US' (from company_df)
+    - Current year: Uses year t (NOT lagged)
+    
+    Parameters
+    ----------
+    round_df : pd.DataFrame
+        Round data with RoundNumber, comname, year
+    company_df : pd.DataFrame
+        Company data with comname, comnation (for US filtering)
+    year_col : str
+        Column name for year
+    roundnumber_col : str
+        Column name for round number
+    comname_col : str
+        Column name for company name
+    comnation_col : str
+        Column name for company nationality
+    us_nation : str
+        Value indicating US companies (default: 'US')
+    
+    Returns
+    -------
+    pd.DataFrame
+        Year-level data with new_venture_demand column
+        Columns: year, new_venture_demand
+    """
+    logger.info("=" * 80)
+    logger.info("Calculating New Venture Funding Demand (current year, NOT lagged)...")
+    logger.info("=" * 80)
+    
+    # Check required columns
+    required_cols = [comname_col, year_col]
+    if roundnumber_col not in round_df.columns:
+        logger.warning(f"Column '{roundnumber_col}' not found. Cannot identify first rounds.")
+        logger.warning("Returning empty DataFrame.")
+        return pd.DataFrame({year_col: [], 'new_venture_demand': []})
+    
+    # Step 1: Merge company nationality information from company_df
+    logger.info("Step 1: Merging company nationality information from company_df...")
+    
+    if comnation_col not in company_df.columns:
+        logger.error(f"Column '{comnation_col}' not found in company_df.")
+        logger.error("Cannot filter US companies. Returning empty DataFrame.")
+        return pd.DataFrame({year_col: [], 'new_venture_demand': []})
+    
+    # Merge nationality from company_df to round_df
+    round_with_nation = round_df.merge(
+        company_df[[comname_col, comnation_col]].drop_duplicates(subset=[comname_col]),
+        on=comname_col,
+        how='left'
+    )
+    logger.info(f"  Merged nationality for {len(round_with_nation)} rounds")
+    logger.info(f"  Rounds with nationality info: {round_with_nation[comnation_col].notna().sum():,} / {len(round_with_nation):,}")
+    logger.info(f"  Unique nation values: {round_with_nation[comnation_col].dropna().unique()[:10]} (showing first 10)")
+    
+    # Step 2: Identify first rounds per company
+    logger.info("Step 2: Identifying first rounds...")
+    
+    # Fill NaN RoundNumber with a large number (so they're not considered first rounds)
+    round_with_nation[roundnumber_col] = round_with_nation[roundnumber_col].fillna(9999)
+    
+    # Find minimum RoundNumber per company
+    round_with_nation['min_round'] = round_with_nation.groupby(comname_col)[roundnumber_col].transform('min')
+    round_with_nation['is_first_round'] = (round_with_nation[roundnumber_col] == round_with_nation['min_round']).astype(int)
+    
+    first_rounds = round_with_nation[round_with_nation['is_first_round'] == 1].copy()
+    logger.info(f"  Identified {len(first_rounds)} first-round investments")
+    logger.info(f"  Unique companies with first rounds: {first_rounds[comname_col].nunique()}")
+    
+    # Step 3: Filter US companies only
+    logger.info("Step 3: Filtering US companies...")
+    
+    if comnation_col in company_df.columns:
+        # Check what values exist in comnation
+        unique_nations = first_rounds[comnation_col].dropna().unique()
+        logger.info(f"  Unique nation values in first_rounds: {unique_nations[:10]} (showing first 10)")
+        logger.info(f"  Looking for: '{us_nation}'")
+        
+        # Try exact match first
+        us_first_rounds = first_rounds[
+            first_rounds[comnation_col] == us_nation
+        ].copy()
+        
+        # If no matches, try case-insensitive or partial match
+        if len(us_first_rounds) == 0:
+            logger.warning(f"  No exact match for '{us_nation}'. Trying case-insensitive match...")
+            us_first_rounds = first_rounds[
+                first_rounds[comnation_col].str.contains(us_nation, case=False, na=False)
+            ].copy()
+            if len(us_first_rounds) > 0:
+                logger.info(f"  Found {len(us_first_rounds)} matches with case-insensitive search")
+        
+        logger.info(f"  US first-round investments: {len(us_first_rounds)}")
+        if len(us_first_rounds) > 0:
+            logger.info(f"  Unique US companies: {us_first_rounds[comname_col].nunique()}")
+        else:
+            logger.warning(f"  ⚠️  No US first-round investments found!")
+            logger.warning(f"  This may cause new_venture_demand to be empty.")
+    else:
+        us_first_rounds = first_rounds.copy()
+        logger.warning("  US filter not applied (comnation column missing)")
+    
+    # Step 4: Count unique ventures per year (CURRENT YEAR, NOT LAGGED)
+    logger.info("Step 4: Counting unique ventures per year (current year)...")
+    
+    if len(us_first_rounds) == 0:
+        logger.warning("  ⚠️  us_first_rounds is empty. Cannot calculate annual ventures.")
+        logger.warning("  Returning empty DataFrame.")
+        return pd.DataFrame({year_col: [], 'new_venture_demand': []})
+    
+    annual_ventures = us_first_rounds.groupby(year_col)[comname_col].nunique().reset_index()
+    annual_ventures.columns = [year_col, 'venture_count']
+    
+    if len(annual_ventures) == 0:
+        logger.warning("  ⚠️  annual_ventures is empty after grouping.")
+        logger.warning("  Returning empty DataFrame.")
+        return pd.DataFrame({year_col: [], 'new_venture_demand': []})
+    
+    logger.info(f"  Year range: {annual_ventures[year_col].min()} - {annual_ventures[year_col].max()}")
+    logger.info(f"  Total years: {len(annual_ventures)}")
+    logger.info(f"  Mean ventures per year: {annual_ventures['venture_count'].mean():.1f}")
+    logger.info(f"  Years with zero ventures: {(annual_ventures['venture_count'] == 0).sum()}")
+    
+    # Step 5: Apply natural log transformation
+    logger.info("Step 5: Applying natural log transformation...")
+    
+    # Handle zeros and negative values (shouldn't happen, but safety check)
+    annual_ventures['new_venture_demand'] = np.where(
+        annual_ventures['venture_count'] > 0,
+        np.log(annual_ventures['venture_count']),
+        np.nan
+    )
+    
+    # Prepare output
+    result = annual_ventures[[year_col, 'new_venture_demand']].copy()
+    
+    # Remove rows with NaN (zero count)
+    result = result.dropna(subset=['new_venture_demand'])
+    
+    # Log statistics
+    logger.info("=" * 80)
+    logger.info(f"✅ New Venture Funding Demand calculated!")
+    logger.info(f"   - Year range: {result[year_col].min()} - {result[year_col].max()}")
+    logger.info(f"   - Valid years: {len(result)}")
+    logger.info(f"   - Demand range: {result['new_venture_demand'].min():.3f} - {result['new_venture_demand'].max():.3f}")
+    logger.info(f"   - Mean demand: {result['new_venture_demand'].mean():.3f}")
+    logger.info(f"   - Note: This is CURRENT YEAR value. Lagging should be done during regression analysis.")
     logger.info("=" * 80)
     
     return result

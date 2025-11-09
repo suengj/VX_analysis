@@ -155,7 +155,7 @@ def load_company_data() -> pd.DataFrame:
     except Exception as e:
         logger.error(f"Error loading company data: {e}")
         return pd.DataFrame()
-
+    
 
 def _deduplicate_firm_rows(df: pd.DataFrame) -> pd.DataFrame:
     """
@@ -186,7 +186,7 @@ def _deduplicate_firm_rows(df: pd.DataFrame) -> pd.DataFrame:
 
     # Keep the best row per firm
     dedup = df_sorted.drop_duplicates(subset=['firmname'], keep='first').copy()
-
+    
     # Drop firms where both founding date and zip are missing
     if has_found_col and has_zip_col:
         invalid = dedup['firmfounding'].isna() & dedup['firmzip'].isna()
@@ -212,7 +212,7 @@ def load_firm_data() -> pd.DataFrame:
     if not paths.FIRMDTA_FILE.exists():
         logger.warning(f"Firm file not found: {paths.FIRMDTA_FILE}")
         return pd.DataFrame()
-
+    
     logger.info(f"Loading firm file: {paths.FIRMDTA_FILE.name}")
 
     try:
@@ -235,7 +235,7 @@ def load_firm_data() -> pd.DataFrame:
 
         # 3) Parse dates (before deduplication)
         firm_df = parse_dates(firm_df, ['firmfounding'])
-
+        
         # 4) Deduplicate by firmname with simple rules
         before = len(firm_df)
         firm_df = _deduplicate_firm_rows(firm_df)
@@ -254,10 +254,9 @@ def load_firm_data() -> pd.DataFrame:
 
         # 6) Optimize dtypes
         firm_df = optimize_dtypes(firm_df)
-
+        
         logger.info(f"Final firm data: {len(firm_df)} rows, {len(firm_df.columns)} columns")
         return firm_df
-
     except Exception as e:
         logger.error(f"Error loading firm data: {e}")
         return pd.DataFrame()
