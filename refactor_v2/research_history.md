@@ -107,6 +107,15 @@ Added 7 initial period variables that capture VC firm investment behavior and ch
   - Market-level variables: Average during t1~t3
   - Firm age: Value at t1 (initial_year)
   - Geographic distances: Average of firm-year level co-partner distances during t1~t3
+- Data preservation strategy:
+  - Join method: Uses `right` join to preserve all firms in `initial_year_df`
+  - Missing handling: Firms in `initial_year_df` that don't exist in `firm_vars_df` or `copartner_dist_df` are still included in results (marked as NaN)
+  - Debugging logs: Outputs data size, year range, and non-null counts at each step to track causes of missing values
+- Column duplication prevention:
+  - `initial_year` column duplication issue resolved: Remove `initial_year` from right DataFrame before merge
+  - Reason: Both `result` and merged DataFrames are firm-level, so same `firmname` means same `initial_year` (duplicate)
+  - Method: Remove `initial_year` using `drop(columns=['initial_year'], errors='ignore')` before merge, then merge using only `on=[firm_col]`
+  - Result: No `initial_year_x`, `initial_year_y` suffixes - only `result`'s `initial_year` is preserved
 
 **Geographic Distance Variables**
 
@@ -658,9 +667,42 @@ reputation_df = firm_variables.calculate_vc_reputation(
 
 ---
 
-**Document Version**: 1.3  
+**Document Version**: 1.5  
 **Last Updated**: 2025-11-07  
-**Total Lines**: ~650
+**Total Lines**: ~690
+
+### Update (2025-11-07 - Initial Period Variables Calculation Improvement)
+
+**Join Method Optimization**
+
+Improved data preservation in initial period variable calculations:
+
+1. **Problem**: Previous `inner` join excluded firms from `initial_year_df` that didn't exist in `firm_vars_df` or `copartner_dist_df`, causing missing values in `initial_*` variables.
+
+2. **Solution**: Changed join method from `inner` to `right` join:
+   - `calculate_initial_period_variables()`: Preserves all firms in `initial_year_df`
+   - `calculate_initial_period_geographic_distances()`: Preserves all firms in `initial_year_df`
+   - Missing firms are included in results with NaN values (allows tracking and analysis)
+
+3. **Debugging Enhancement**:
+   - Added comprehensive logging at each calculation step:
+     - Input data size and year range
+     - After-merge data size
+     - Period data (t1~t3) size
+     - Non-null value counts
+   - Helps identify root causes of missing values (e.g., year range mismatch, missing source data)
+
+4. **Column Duplication Prevention**:
+   - **Problem**: When merging firm-level DataFrames, `initial_year` column exists in both `result` and merged DataFrames, causing pandas to create `initial_year_x` and `initial_year_y` suffixes
+   - **Root Cause**: Both DataFrames are firm-level, so same `firmname` means same `initial_year` (duplicate by design)
+   - **Solution**: Remove `initial_year` from right DataFrame before merge using `drop(columns=['initial_year'], errors='ignore')`, then merge using only `on=[firm_col]`
+   - **Impact**: Clean merge without suffix columns, preserving only `result`'s `initial_year` (the authoritative source)
+
+5. **Overall Impact**:
+   - All firms in `initial_year_df` are preserved in results
+   - Better tracking of missing value causes
+   - More transparent data flow for debugging
+   - No column duplication issues (`initial_year_x`, `initial_year_y` eliminated)
 
 
 

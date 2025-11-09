@@ -125,6 +125,17 @@
 - Firm age: t1 시점 값 (초기 시점 조직 나이)
 - Geographic distances: t1~t3 기간 동안의 firm-year level co-partner 거리 변수들의 평균
 
+**데이터 보존 전략**:
+- Join 방식: `right` join 사용하여 `initial_year_df`의 모든 firm 보존
+- Missing 처리: `initial_year_df`에 있는 firm이 `firm_vars_df` 또는 `copartner_dist_df`에 없어도 결과에 포함 (NaN으로 표시)
+- 디버깅 로그: 각 단계별 데이터 크기, 연도 범위, non-null 값 개수 출력하여 Missing 원인 추적 가능
+
+**컬럼 중복 방지**:
+- `initial_year` 컬럼 중복 문제 해결: merge 전에 오른쪽 DataFrame에서 `initial_year` 제거
+- 이유: `result`와 merge되는 DataFrame 모두 firm-level이므로 같은 `firmname`이면 같은 `initial_year` (중복)
+- 방법: merge 전에 `drop(columns=['initial_year'], errors='ignore')`로 제거 후 `on=[firm_col]`만 사용하여 merge
+- 결과: `initial_year_x`, `initial_year_y` suffix 없이 `result`의 `initial_year`만 유지
+
 **Imprinting 효과 해석**:
 - 초기 투자 행위/특성이 이후 VC firm의 투자 패턴에 지속적 영향을 미칠 수 있음
 - 예: 초기 early stage 투자 비율이 높으면 이후에도 early stage 투자 선호도가 높을 수 있음
@@ -345,7 +356,7 @@ flowchart TD
 <a id="history"></a>
 ## 🕒 히스토리 (요약 타임라인)
 
-- 2025-11-07: Market Heat 변수 추가 (industry-level, 과거 3년 대비 당해 연도 fund raising 상대적 활성도, ln ratio), New Venture Funding Demand 변수 추가 (industry-level, lagged, 전년도 첫 라운드 US 벤처 개수 ln), HQ 더미 변수 확장 (firm_hq_CA, firm_hq_MA, firm_hq_NY 추가). Missing 플래그 Criticality 분류 완료 (6개 컬럼 정의 및 Low/Medium/High 분류, 샘플링 가이드 추가). VC Reputation Index 구현 완료 (6개 구성 변수, Z-score 표준화, Min-Max 스케일링), IPO 로직 수정 (투자는 과거, IPO는 [t-4, t]), Merge 방식 left join으로 변경, rep_missing_fund_data 플래그 추가, fundiniclosing 파싱 모니터링 추가. Geographic Distance 변수 추가 완료 (ZIP 코드 기반 Haversine 거리, VC-Company 6개 변수, VC-Co-Partner 6개 변수, Initial Period Co-Partner 거리 6개 변수, 추천 변수: median, weighted_mean, std).
+- 2025-11-07: Market Heat 변수 추가 (industry-level, 과거 3년 대비 당해 연도 fund raising 상대적 활성도, ln ratio), New Venture Funding Demand 변수 추가 (industry-level, lagged, 전년도 첫 라운드 US 벤처 개수 ln), HQ 더미 변수 확장 (firm_hq_CA, firm_hq_MA, firm_hq_NY 추가). Missing 플래그 Criticality 분류 완료 (6개 컬럼 정의 및 Low/Medium/High 분류, 샘플링 가이드 추가). VC Reputation Index 구현 완료 (6개 구성 변수, Z-score 표준화, Min-Max 스케일링), IPO 로직 수정 (투자는 과거, IPO는 [t-4, t]), Merge 방식 left join으로 변경, rep_missing_fund_data 플래그 추가, fundiniclosing 파싱 모니터링 추가. Geographic Distance 변수 추가 완료 (ZIP 코드 기반 Haversine 거리, VC-Company 6개 변수, VC-Co-Partner 6개 변수, Initial Period Co-Partner 거리 6개 변수, 추천 변수: median, weighted_mean, std). Initial Period Variables 계산 로직 개선 (join 방식 inner → right 변경으로 모든 firm 보존, 디버깅 로그 추가로 Missing 원인 추적 가능, initial_year 컬럼 중복 문제 해결로 _x/_y suffix 제거).
 
 - 2025-10-28: 코호트 내 initial_* 결측 진단 및 재분류 제안(‘other’→‘no_partners’), 진단 셀 안정화(`initial_year_full` 보강), merge 기준 확정, centrality NA 후처리 가이드 반영.
 
@@ -389,5 +400,5 @@ refactor_v2/
 ---
 
 **최종 업데이트**: 2025-11-07  
-**분석 상태**: 데이터 준비 완료 (VC Reputation, Market Heat, New Venture Funding Demand 포함), Years Since Initial Network 변수 추가 완료, Missing 플래그 Criticality 분류 완료, HQ 더미 변수 확장 완료, Initial Period Variables (7개) 추가 완료, Geographic Distance 변수 추가 완료 (VC-Company 6개, VC-Co-Partner 6개, Initial Period 6개), Raw 데이터셋 준비 완료 (panel 분석 시 lagging 필요), 분석 단계 진입 준비  
+**분석 상태**: 데이터 준비 완료 (VC Reputation, Market Heat, New Venture Funding Demand 포함), Years Since Initial Network 변수 추가 완료, Missing 플래그 Criticality 분류 완료, HQ 더미 변수 확장 완료, Initial Period Variables (7개) 추가 완료, Geographic Distance 변수 추가 완료 (VC-Company 6개, VC-Co-Partner 6개, Initial Period 6개), Raw 데이터셋 준비 완료 (panel 분석 시 lagging 필요), Initial Period Variables 계산 로직 개선 완료 (join 방식 개선, 디버깅 로그 추가, initial_year 컬럼 중복 문제 해결), 분석 단계 진입 준비  
 **다음 미팅**: 회귀 분석 결과 검토

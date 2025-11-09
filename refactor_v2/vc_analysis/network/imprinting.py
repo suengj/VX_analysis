@@ -396,9 +396,12 @@ def calculate_initial_period_variables(initial_year_df: pd.DataFrame,
     logger.info(f"    - firm_vars_df: {len(firm_vars_df)} firm-year observations")
     logger.info(f"    - firm_vars_df year range: {firm_vars_df[year_col].min():.0f} ~ {firm_vars_df[year_col].max():.0f}")
     
+    # Remove duplicate 'initial_year' column from firm_vars_df if exists to avoid _x/_y suffix
+    firm_vars_df_clean = firm_vars_df.drop(columns=['initial_year'], errors='ignore').copy()
+    
     # Merge initial_year info into firm_vars_df for vectorized filtering
-    # Use left join to preserve all firms in initial_year_df
-    firm_vars_with_init = firm_vars_df.merge(
+    # Use right join to preserve all firms in initial_year_df
+    firm_vars_with_init = firm_vars_df_clean.merge(
         initial_year_df[[firm_col, 'initial_year']],
         on=firm_col,
         how='right'  # Right join to preserve all firms in initial_year_df
@@ -453,8 +456,11 @@ def calculate_initial_period_variables(initial_year_df: pd.DataFrame,
         initial_vars_df['initial_inv_amt'] = 0
     
     # Add firmage at t1 (initial_year) - need separate merge
-    firmage_at_t1 = firm_vars_df[
-        firm_vars_df[year_col].isin(initial_year_df['initial_year'])
+    # Remove duplicate 'initial_year' column from firm_vars_df if exists
+    firm_vars_df_for_firmage = firm_vars_df.drop(columns=['initial_year'], errors='ignore').copy()
+    
+    firmage_at_t1 = firm_vars_df_for_firmage[
+        firm_vars_df_for_firmage[year_col].isin(initial_year_df['initial_year'])
     ].merge(
         initial_year_df[[firm_col, 'initial_year']],
         left_on=[firm_col, year_col],
@@ -476,7 +482,10 @@ def calculate_initial_period_variables(initial_year_df: pd.DataFrame,
         initial_vars_df['initial_inv_amt'] = initial_vars_df['initial_inv_amt'].fillna(0)
     
     # Merge with result
-    result = result.merge(initial_vars_df, on=[firm_col, 'initial_year'], how='left')
+    # Remove 'initial_year' from initial_vars_df before merge to avoid _x/_y suffix
+    # We'll keep result's initial_year
+    initial_vars_df_clean = initial_vars_df.drop(columns=['initial_year'], errors='ignore').copy()
+    result = result.merge(initial_vars_df_clean, on=[firm_col], how='left')
     
     logger.info(f"  Calculated initial period variables for {len(result)} firms")
     logger.info(f"  Variables: early_stage_ratio, industry_blau, inv_num, inv_amt, firmage")
@@ -523,7 +532,9 @@ def calculate_initial_period_variables(initial_year_df: pd.DataFrame,
         logger.info(f"  Aggregated to {len(market_heat_period_df)} firms")
         logger.info(f"  Non-null initial_market_heat: {market_heat_period_df['initial_market_heat'].notna().sum()}")
         
-        result = result.merge(market_heat_period_df, on=[firm_col, 'initial_year'], how='left')
+        # Merge market heat - remove 'initial_year' from market_heat_period_df before merge
+        market_heat_period_df_clean = market_heat_period_df.drop(columns=['initial_year'], errors='ignore').copy()
+        result = result.merge(market_heat_period_df_clean, on=[firm_col], how='left')
         logger.info(f"  Added initial_market_heat for {len(result)} firms")
     else:
         logger.info(f"\nStep 2: Skipping initial_market_heat (not provided)")
@@ -574,7 +585,9 @@ def calculate_initial_period_variables(initial_year_df: pd.DataFrame,
         logger.info(f"  Aggregated to {len(demand_period_df)} firms")
         logger.info(f"  Non-null initial_new_venture_demand: {demand_period_df['initial_new_venture_demand'].notna().sum()}")
         
-        result = result.merge(demand_period_df, on=[firm_col, 'initial_year'], how='left')
+        # Merge new venture demand - remove 'initial_year' from demand_period_df before merge
+        demand_period_df_clean = demand_period_df.drop(columns=['initial_year'], errors='ignore').copy()
+        result = result.merge(demand_period_df_clean, on=[firm_col], how='left')
         logger.info(f"  Added initial_new_venture_demand for {len(result)} firms")
     else:
         logger.info(f"\nStep 3: Skipping initial_new_venture_demand (not provided)")
@@ -662,9 +675,12 @@ def calculate_initial_period_geographic_distances(initial_year_df: pd.DataFrame,
     if len(copartner_dist_df) > 0:
         logger.info(f"    - copartner_dist_df year range: {copartner_dist_df[year_col].min():.0f} ~ {copartner_dist_df[year_col].max():.0f}")
     
+    # Remove duplicate 'initial_year' column from copartner_dist_df if exists to avoid _x/_y suffix
+    copartner_dist_df_clean = copartner_dist_df.drop(columns=['initial_year'], errors='ignore').copy()
+    
     # Merge initial_year info into copartner_dist_df for vectorized filtering
     # Use right join to preserve all firms in initial_year_df
-    copartner_with_init = copartner_dist_df.merge(
+    copartner_with_init = copartner_dist_df_clean.merge(
         initial_year_df[[firm_col, 'initial_year']],
         on=firm_col,
         how='right'  # Right join to preserve all firms in initial_year_df
@@ -705,7 +721,10 @@ def calculate_initial_period_geographic_distances(initial_year_df: pd.DataFrame,
             initial_dist_df[f'initial_{col}'] = np.nan
     
     # Merge with result
-    result = result.merge(initial_dist_df, on=[firm_col, 'initial_year'], how='left')
+    # Remove 'initial_year' from initial_dist_df before merge to avoid _x/_y suffix
+    # We'll keep result's initial_year
+    initial_dist_df_clean = initial_dist_df.drop(columns=['initial_year'], errors='ignore').copy()
+    result = result.merge(initial_dist_df_clean, on=[firm_col], how='left')
     
     logger.info(f"✅ Calculated initial period distances for {len(result)} firms")
     logger.info(f"   Variables: {len([c for c in result.columns if c.startswith('initial_geo_dist_copartner')])} initial_xxx variables")
