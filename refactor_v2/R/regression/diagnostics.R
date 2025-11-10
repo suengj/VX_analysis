@@ -1,6 +1,14 @@
 ## diagnostics.R
 ## Description, correlation, and VIF diagnostics; export CSVs
 
+# Auto-install missing packages
+required_packages <- c("dplyr", "tidyr", "readr", "psych", "Hmisc", "performance", "car", "broom")
+missing_packages <- required_packages[!(required_packages %in% installed.packages()[,"Package"])]
+if(length(missing_packages) > 0) {
+  message("Installing missing packages: ", paste(missing_packages, collapse = ", "))
+  install.packages(missing_packages, repos = "https://cloud.r-project.org")
+}
+
 suppressPackageStartupMessages({
   library(dplyr)
   library(tidyr)
@@ -32,9 +40,12 @@ safe_numeric <- function(df) {
 run_diagnostics <- function(df, dv, predictors, out_dir) {
   ensure_outdir(out_dir)
   
+  # Generate timestamp for file naming
+  timestamp <- format(Sys.time(), "%y%m%d_%H%M")
+  
   # 1) Description
   desc_df <- psych::describe(df %>% select(all_of(c(dv, predictors))) %>% safe_numeric())
-  desc_out <- file.path(out_dir, paste0("diagnostics_description_", dv, ".csv"))
+  desc_out <- file.path(out_dir, paste0("diagnostics_description_", dv, "_", timestamp, ".csv"))
   readr::write_csv(tibble::rownames_to_column(as.data.frame(desc_df), var = "variable"), desc_out)
   
   # 2) Correlation (numeric only)
@@ -42,15 +53,15 @@ run_diagnostics <- function(df, dv, predictors, out_dir) {
   rc <- Hmisc::rcorr(as.matrix(corr_input))
   corr_r <- as.data.frame(rc$r) %>% tibble::rownames_to_column("var1")
   corr_p <- as.data.frame(rc$P) %>% tibble::rownames_to_column("var1")
-  readr::write_csv(corr_r, file.path(out_dir, paste0("diagnostics_corr_r_", dv, ".csv")))
-  readr::write_csv(corr_p, file.path(out_dir, paste0("diagnostics_corr_p_", dv, ".csv")))
+  readr::write_csv(corr_r, file.path(out_dir, paste0("diagnostics_corr_r_", dv, "_", timestamp, ".csv")))
+  readr::write_csv(corr_p, file.path(out_dir, paste0("diagnostics_corr_p_", dv, "_", timestamp, ".csv")))
   
   # 3) VIF
   # Primary attempt: performance::check_collinearity on Gaussian proxy GLM
   f_str <- paste0("log1p(", dv, ") ~ ", paste(predictors, collapse = " + "))
   glm_proxy <- try(stats::lm(stats::as.formula(f_str), data = df), silent = TRUE)
   
-  vif_out_path <- file.path(out_dir, paste0("diagnostics_vif_", dv, ".csv"))
+  vif_out_path <- file.path(out_dir, paste0("diagnostics_vif_", dv, "_", timestamp, ".csv"))
   if (!inherits(glm_proxy, "try-error")) {
     # Try performance first
     cc <- try(performance::check_collinearity(glm_proxy), silent = TRUE)
@@ -80,11 +91,6 @@ run_diagnostics <- function(df, dv, predictors, out_dir) {
 # - Condition Index
 # - Model fit statistics
 # - Robustness checks
-
-library(car)  # for VIF
-library(dplyr)
-library(tidyr)
-
 
 #' Calculate VIF (Variance Inflation Factor)
 #'

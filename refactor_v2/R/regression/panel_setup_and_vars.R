@@ -1,6 +1,14 @@
 ## panel_setup_and_vars.R
 ## Panel keys, derived variables, Mundlak means, and initial-variable selectors
 
+# Auto-install missing packages
+required_packages <- c("dplyr", "tidyr", "stringr", "purrr", "plm")
+missing_packages <- required_packages[!(required_packages %in% installed.packages()[,"Package"])]
+if(length(missing_packages) > 0) {
+  message("Installing missing packages: ", paste(missing_packages, collapse = ", "))
+  install.packages(missing_packages, repos = "https://cloud.r-project.org")
+}
+
 suppressPackageStartupMessages({
   library(dplyr)
   library(tidyr)
@@ -46,14 +54,62 @@ add_mundlak_means <- function(df, controls = c("early_stage_ratio","industry_bla
   df %>% left_join(means, by = "firmname")
 }
 
-#' Create pdata.frame (optional downstream use)
-#' @param df tibble
-#' @return pdata.frame
-to_panel <- function(df) {
-  plm::pdata.frame(df, index = c("firmname","year"))
+#' Create lagged variables for time-varying covariates
+#' Uses plm::lag() to create lag(1) for panel data
+#' @param df tibble with firmname and year columns
+#' @param vars_to_lag character vector of variable names to lag
+#' @return tibble with lagged variables (named as {var}_lag1)
+create_lagged_vars <- function(df, vars_to_lag) {
+  # Ensure data is sorted by firmname and year
+  df <- df %>%
+    arrange(firmname, year)
+  
+  # Convert to pdata.frame for lag operation
+  pdata <- plm::pdata.frame(df, index = c("firmname", "year"))
+  
+  # Create lagged variables
+  for (var in vars_to_lag) {
+    if (var %in% names(df)) {
+      lag_var_name <- paste0(var, "_lag1")
+      pdata[[lag_var_name]] <- plm::lag(pdata[[var]], k = 1)
+    }
+  }
+  
+  # Convert back to tibble (pdata.frame attributes are preserved but can be converted)
+  result <- as.data.frame(pdata)
+  # Remove plm-specific attributes that might cause issues
+  attr(result, "index") <- NULL
+  class(result) <- setdiff(class(result), c("pdata.frame", "data.frame"))
+  class(result) <- c("tbl_df", "tbl", "data.frame")
+  as_tibble(result)
 }
 
-#' Return initial-condition variable set
+#' Build initial-condition variable names based on power set and aggregation types
+#' @param init_set one of "p75", "p0", "p99"
+#' @param agg_types character vector: "mean", "max", "min", or combinations
+#' @return character vector of variable names
+#' @examples
+#' build_initial_vars("p75", c("mean"))  # Returns: c("initial_pwr_p75_mean")
+#' build_initial_vars("p75", c("mean", "max"))  # Returns: c("initial_pwr_p75_mean", "initial_pwr_p75_max")
+build_initial_vars <- function(init_set = c("p75","p0","p99"), 
+                                agg_types = c("mean")) {
+  init_set <- match.arg(init_set)
+  
+  # Validate aggregation types
+  valid_agg <- c("mean", "max", "min")
+  invalid <- setdiff(agg_types, valid_agg)
+  if (length(invalid) > 0) {
+    stop("Invalid aggregation types: ", paste(invalid, collapse=", "), 
+         ". Valid types are: ", paste(valid_agg, collapse=", "))
+  }
+  
+  # Build variable names
+  base_name <- paste0("initial_pwr_", init_set, "_")
+  vars <- paste0(base_name, agg_types)
+  vars
+}
+
+#' Return initial-condition variable set (legacy function, use build_initial_vars instead)
 #' @param mode one of c("p75","p0","p99","all")
 #' @return character vector
 initial_vars <- function(mode = c("p75","p0","p99","all")) {

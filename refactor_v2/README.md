@@ -6,7 +6,8 @@
 ```
 DV=perf_IPO INIT_SET=p75 MODEL=zinb Rscript R/regression/run_imprinting_main.R
 ```
-- See `USAGE_GUIDE.md` → “R Analysis Quick Start” for full details (DV/IV/CV selection, model switching, outputs).
+- See `USAGE_GUIDE.md` → "R Analysis Quick Start" for full details (DV/IV/CV selection, model switching, outputs).
+- **Output location**: All statistical results saved to `notebooks/output/` (diagnostics, model coefficients with significance stars, visualization tables).
 
 Python implementation of VC network analysis preprocessing pipeline, optimized for speed and efficiency.
 

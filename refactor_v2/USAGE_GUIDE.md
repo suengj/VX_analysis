@@ -6,17 +6,21 @@ This section documents the R-only pipeline for imprinting analysis. It is indepe
 
 ### Entry point
 - Main runner: `R/regression/run_imprinting_main.R`
-- Outputs: `notebooks/analysis_outputs/`
+- Outputs: `notebooks/output/` (all statistical results saved here)
 
 ### How to run
 1) Start a fresh R session.
 2) Ensure required packages are installed: `glmmTMB`, `psych`, `Hmisc`, `performance`, `broom`, `broom.mixed`, `arrow`, `dplyr`, `tidyr`, `readr`, `plm`.
 3) Option A (edit in file):
    - Open `R/regression/run_imprinting_main.R`
-   - Set:
+   - **Configuration Section** (lines ~19-69):
      - `DV`: `"perf_IPO"` | `"perf_all"` | `"perf_MnA"`
-     - `INIT_SET`: `"p75"` | `"p0"` | `"p99"`
+     - `INIT_SET`: `"p75"` | `"p0"` | `"p99"` (power centrality set)
+     - `INIT_VAR_AGG_TYPES`: `c("mean")` | `c("max")` | `c("min")` | `c("mean", "max")` etc. (which aggregations to include)
      - `MODEL`: `"zinb"` | `"poisson_fe"` | `"nb_nozi_re"` | `"all"`
+   - **Variable Configuration Section** (lines ~47-69):
+     - `MAIN_CONTROLS`: Edit to add/remove main control variables
+     - `MUNDLAK_VARS`: Edit to control which variables get firm-level means (Mundlak terms)
    - Run the script.
 4) Option B (command line):
    ```
@@ -26,11 +30,13 @@ This section documents the R-only pipeline for imprinting analysis. It is indepe
 ### What it does
 - Loads latest dataset from `notebooks/analysis_outputs/final_analysis_*.parquet` (fallback: Feather).
 - Prepares panel keys and derived variables (e.g., `years_since_init`, `firmage_log`, Mundlak means).
-- Runs diagnostics: description, correlation, VIF (CSV outputs).
+- **Creates lagged variables**: Time-varying covariates are lagged by 1 period (`X_{i,t-1}` predicts `y_{i,t}`) to avoid simultaneity bias.
+- Runs diagnostics: description, correlation, VIF (CSV outputs saved to `notebooks/output/`).
 - Fits models:
   - Main: ZINB (firm random intercept + year fixed effects, zero-inflation intercept-only).
   - Robustness: Poisson FE (firm FE + year FE) and NB (no ZI) with firm RE + year FE.
-- Exports tidy results and coefficient tables for plotting.
+- Exports tidy results with significance stars (`***`, `**`, `*`) to `notebooks/output/`.
+- Creates coefficient tables for plotting (also saved to `notebooks/output/`).
 
 ### File map (R modules)
 - `R/regression/data_loader.R`: load dataset, base columns.
@@ -42,10 +48,50 @@ This section documents the R-only pipeline for imprinting analysis. It is indepe
 - `R/regression/visualization_prep.R`: tidy coefficient tables for plots.
 - `R/regression/run_imprinting_main.R`: orchestrator (edit-only DV/INIT_SET/MODEL).
 
+### Output Files
+All statistical results are saved to `notebooks/output/` with timestamps (yymmdd_hhmm format):
+- **Diagnostics**: `diagnostics_description_{DV}_{timestamp}.csv`, `diagnostics_corr_r_{DV}_{timestamp}.csv`, `diagnostics_corr_p_{DV}_{timestamp}.csv`, `diagnostics_vif_{DV}_{timestamp}.csv`
+- **Main Model (ZINB)**: `model_{DV}_zinb_{INIT_SET}_cond_{timestamp}.csv`, `model_{DV}_zinb_{INIT_SET}_zi_{timestamp}.csv`, `model_{DV}_zinb_{INIT_SET}_glance_{timestamp}.csv`
+- **Robustness Models**: `robust_{DV}_nb_nozi_re_cond_{timestamp}.csv`, `robust_{DV}_poisson_fe_coef_{timestamp}.csv`, etc.
+- **Visualization**: `viz_coefs_{DV}_{INIT_SET}_{MODEL}_{timestamp}.csv`
+
+All coefficient tables include a `stars` column with significance indicators:
+- `***`: p < 0.001
+- `**`: p < 0.01
+- `*`: p < 0.05
+- (empty): p >= 0.05
+
+**Note**: Timestamps prevent file overwriting. Each run creates new files with unique timestamps (format: `yymmdd_hhmm`, e.g., `241215_1430`).
+
+### Variable Configuration
+
+All variables that enter the models are controlled in `run_imprinting_main.R`:
+
+1. **Initial Condition Variables** (`INIT_VAR_AGG_TYPES`):
+   - Controls which aggregations (`_mean`, `_max`, `_min`) are included for initial partner status
+   - Example: `INIT_VAR_AGG_TYPES <- c("mean")` includes only `initial_pwr_p75_mean` (if `INIT_SET="p75"`)
+   - Example: `INIT_VAR_AGG_TYPES <- c("mean", "max")` includes both `initial_pwr_p75_mean` and `initial_pwr_p75_max`
+
+2. **Main Control Variables** (`MAIN_CONTROLS`):
+   - Time-varying covariates: `years_since_init`, `after7`, `firmage_log`, `early_stage_ratio`, `industry_blau`, `inv_amt_log`, `dgr_cent`
+   - **Note**: Time-varying variables are automatically lagged by 1 period (`X_{t-1}` predicts `y_t`) to avoid simultaneity bias
+   - Variables that are NOT lagged: `years_since_init` (time-since variable), `after7` (dummy variable)
+   - Edit this list to add/remove control variables
+
+3. **Mundlak Terms** (`MUNDLAK_VARS`):
+   - Variables listed here automatically get firm-level means created (e.g., `early_stage_ratio` → `early_stage_ratio_firm_mean`)
+   - These control for unobserved firm heterogeneity in random effects models
+   - Default: `c("early_stage_ratio", "industry_blau", "inv_amt_log", "dgr_cent")`
+   - Edit this list to control which variables get Mundlak terms
+
+**Note**: All variable lists are centralized in `run_imprinting_main.R` for easy inspection and modification. No need to dig into other R files to change which variables enter models.
+
 ### Notes
-- Initial-condition variables default to power centrality p75 set. Switch via `INIT_SET`.
+- Initial-condition variables default to power centrality p75 set with only `_mean` aggregation. Switch via `INIT_SET` and `INIT_VAR_AGG_TYPES`.
 - ZINB retains cross-firm initial-condition effects via random intercept + Mundlak means; use `poisson_fe` only for robustness since firm FE would absorb firm-level constants.
-- All outputs are written to `notebooks/analysis_outputs/` with informative filenames.
+- Input data is read from `notebooks/analysis_outputs/` (Python preprocessing outputs).
+- All statistical results are written to `notebooks/output/` (separate from input data).
+- Mundlak terms are created automatically from `MUNDLAK_VARS` list in `run_imprinting_main.R` (see `add_mundlak_means()` function in `panel_setup_and_vars.R`).
 
 ## Table of Contents
 1. [Installation](#installation)

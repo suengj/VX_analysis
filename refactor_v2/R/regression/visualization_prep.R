@@ -1,6 +1,14 @@
 ## visualization_prep.R
 ## Prepare tidy coefficient tables for plotting (coef and intervals)
 
+# Auto-install missing packages
+required_packages <- c("dplyr", "tidyr", "broom", "broom.mixed", "purrr", "readr")
+missing_packages <- required_packages[!(required_packages %in% installed.packages()[,"Package"])]
+if(length(missing_packages) > 0) {
+  message("Installing missing packages: ", paste(missing_packages, collapse = ", "))
+  install.packages(missing_packages, repos = "https://cloud.r-project.org")
+}
+
 suppressPackageStartupMessages({
   library(dplyr)
   library(tidyr)
@@ -9,6 +17,23 @@ suppressPackageStartupMessages({
   library(purrr)
   library(readr)
 })
+
+#' Add significance stars to tidy output
+#' @param df tidy output from broom/broom.mixed
+#' @return df with 'stars' column
+add_significance_stars <- function(df) {
+  if (!"p.value" %in% names(df)) {
+    df$stars <- ""
+    return(df)
+  }
+  df$stars <- dplyr::case_when(
+    df$p.value < 0.001 ~ "***",
+    df$p.value < 0.01  ~ "**",
+    df$p.value < 0.05  ~ "*",
+    TRUE                ~ ""
+  )
+  df
+}
 
 #' Tidy a single model into a plotting-friendly table
 #' @param model fitted object (glm/glmmTMB)
@@ -26,9 +51,10 @@ tidy_for_plot <- function(model, model_label, component = "cond", exponentiate =
   } else {
     td <- tibble::tibble(term = character(), estimate = numeric(), conf.low = numeric(), conf.high = numeric(), component = character())
   }
+  td <- add_significance_stars(td)
   td$model <- model_label
   td %>%
-    select(model, component, term, estimate, conf.low, conf.high, p.value = any_of("p.value"))
+    select(model, component, term, estimate, conf.low, conf.high, p.value = any_of("p.value"), stars)
 }
 
 #' Combine multiple models into one table and optionally write to CSV
