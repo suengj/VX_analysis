@@ -1,5 +1,13 @@
 # VC Network Analysis: Python Preprocessing Pipeline
 
+### R Analysis (separate from Python)
+- Use `R/regression/run_imprinting_main.R` as the single entry point.
+- Quick run example:
+```
+DV=perf_IPO INIT_SET=p75 MODEL=zinb Rscript R/regression/run_imprinting_main.R
+```
+- See `USAGE_GUIDE.md` → “R Analysis Quick Start” for full details (DV/IV/CV selection, model switching, outputs).
+
 Python implementation of VC network analysis preprocessing pipeline, optimized for speed and efficiency.
 
 ## Overview

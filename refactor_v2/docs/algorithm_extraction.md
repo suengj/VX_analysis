@@ -89,18 +89,45 @@ degree(v) = number of edges connected to v
 betweenness(v) = Σ(shortest_paths_through_v / total_shortest_paths)
 ```
 
-#### c) Power Centrality (파워 중심성)
-```
-# 베타값 계산
-upsilon = max(eigenvalues(adjacency_matrix))
+#### c) Power Centrality (파워 중심성) - Bonacich Power Centrality
 
-# 세 가지 베타값
-beta_75 = (1/upsilon) * 0.75
-beta_max = (1/upsilon) * (1 - 1e-10)
-beta_zero = 0
+**Theoretical Foundation**:
+- Bonacich (1987) power centrality measures actor status based on status of those deferring to them
+- Status diffuses through social relations based on diffusion parameter β
 
-power_centrality(v, beta) = Σ(beta^distance * degree(neighbor))
+**Calculation Formula**:
 ```
+c = (I - βA)^(-1) A 1
+where:
+  I: Identity matrix
+  A: Adjacency matrix
+  β: Diffusion parameter (β = ρ × (1/λ_max))
+  1: Column vector of ones
+```
+
+**Beta Parameter Selection**:
+```
+# 최대 고유값 계산
+λ_max = max(eigenvalues(adjacency_matrix))
+pwr_max = 1 / λ_max  # β의 상한값 (upper bound)
+
+# β 값 계산: β = ρ × (1/λ_max)
+beta_0 = 0 × (1/λ_max) = 0          # ρ = 0 (unweighted status)
+beta_75 = 0.75 × (1/λ_max)         # ρ = 0.75 (weighted status, Podolny 2005)
+beta_99 = 0.99 × (1/λ_max)         # ρ = 0.99 (high diffusion)
+beta_max = (1 - 1e-10) × (1/λ_max) # ρ ≈ 1 (near maximum)
+```
+
+**Alpha Scaling (Optional)**:
+- Bonacich (1987) suggests scaling constant α so that squared length of status vector equals n
+- **Current Implementation**: α scaling is **omitted** (optional for cross-network comparison)
+- Status values are normalized by maximum value instead
+
+**Power Centrality Measures**:
+- `pwr_max`: 1/λ_max (reference value, not a centrality measure)
+- `pwr_p0`: Power centrality with β=0 (equivalent to degree centrality)
+- `pwr_p75`: Power centrality with β=0.75×(1/λ_max) (primary robustness check)
+- `pwr_p99`: Power centrality with β=0.99×(1/λ_max) (high diffusion sensitivity)
 
 #### d) Constraint (구조적 제약)
 ```
@@ -116,16 +143,19 @@ where p_vq = proportion of v's connections to q
 2. 고유값 계산 (Power Centrality용):
    adjacency_matrix = to_adjacency_matrix(network)
    eigenvalues = compute_eigenvalues(adjacency_matrix)
-   upsilon = max(eigenvalues)
+   lambda_max = max(eigenvalues)  # 최대 고유값
+   pwr_max = 1 / lambda_max        # β의 상한값
 
 3. 중심성 계산:
    degree_cent = compute_degree(network)
    betweenness_cent = compute_betweenness(network)
    
-   # Power centrality (3가지 베타값)
-   power_75 = compute_power_centrality(network, beta=0.75/upsilon)
-   power_max = compute_power_centrality(network, beta=(1-1e-10)/upsilon)
-   power_zero = compute_power_centrality(network, beta=0)
+   # Power centrality (Bonacich power centrality)
+   # β = ρ × (1/λ_max) where ρ ∈ [0, 1)
+   power_p0 = compute_power_centrality(network, beta=0)                    # ρ = 0
+   power_p75 = compute_power_centrality(network, beta=0.75 * pwr_max)    # ρ = 0.75
+   power_p99 = compute_power_centrality(network, beta=0.99 * pwr_max)    # ρ = 0.99
+   # Note: pwr_max is stored as reference value (1/λ_max), not a centrality measure
    
    # Constraint
    constraint = compute_constraint(network)
@@ -136,9 +166,10 @@ where p_vq = proportion of v's connections to q
        'year': year,
        'dgr_cent': degree_cent,
        'btw_cent': betweenness_cent,
-       'pwr_p75': power_75,
-       'pwr_max': power_max,
-       'pwr_zero': power_zero,
+       'pwr_max': pwr_max,        # Reference value (1/λ_max), not a centrality measure
+       'pwr_p0': power_p0,        # β = 0 (equivalent to degree centrality)
+       'pwr_p75': power_p75,      # β = 0.75 × (1/λ_max)
+       'pwr_p99': power_p99,      # β = 0.99 × (1/λ_max)
        'constraint_value': constraint
    })
 

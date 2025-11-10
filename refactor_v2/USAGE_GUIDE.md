@@ -1,5 +1,52 @@
 # VC Analysis Pipeline: Complete Usage Guide
 
+## R Analysis Quick Start (separate from Python workflow)
+
+This section documents the R-only pipeline for imprinting analysis. It is independent from the Python notebooks to avoid confusion.
+
+### Entry point
+- Main runner: `R/regression/run_imprinting_main.R`
+- Outputs: `notebooks/analysis_outputs/`
+
+### How to run
+1) Start a fresh R session.
+2) Ensure required packages are installed: `glmmTMB`, `psych`, `Hmisc`, `performance`, `broom`, `broom.mixed`, `arrow`, `dplyr`, `tidyr`, `readr`, `plm`.
+3) Option A (edit in file):
+   - Open `R/regression/run_imprinting_main.R`
+   - Set:
+     - `DV`: `"perf_IPO"` | `"perf_all"` | `"perf_MnA"`
+     - `INIT_SET`: `"p75"` | `"p0"` | `"p99"`
+     - `MODEL`: `"zinb"` | `"poisson_fe"` | `"nb_nozi_re"` | `"all"`
+   - Run the script.
+4) Option B (command line):
+   ```
+   DV=perf_IPO INIT_SET=p75 MODEL=zinb Rscript R/regression/run_imprinting_main.R
+   ```
+
+### What it does
+- Loads latest dataset from `notebooks/analysis_outputs/final_analysis_*.parquet` (fallback: Feather).
+- Prepares panel keys and derived variables (e.g., `years_since_init`, `firmage_log`, Mundlak means).
+- Runs diagnostics: description, correlation, VIF (CSV outputs).
+- Fits models:
+  - Main: ZINB (firm random intercept + year fixed effects, zero-inflation intercept-only).
+  - Robustness: Poisson FE (firm FE + year FE) and NB (no ZI) with firm RE + year FE.
+- Exports tidy results and coefficient tables for plotting.
+
+### File map (R modules)
+- `R/regression/data_loader.R`: load dataset, base columns.
+- `R/regression/panel_setup_and_vars.R`: panel keys, derived vars, initial-power selectors.
+- `R/regression/diagnostics.R`: description, correlation, VIF.
+- `R/regression/models_zinb_glmmTMB.R`: main ZINB.
+- `R/regression/models_robustness.R`: Poisson FE, NB (no-ZI).
+- `R/regression/results_export.R`: generic model exporters.
+- `R/regression/visualization_prep.R`: tidy coefficient tables for plots.
+- `R/regression/run_imprinting_main.R`: orchestrator (edit-only DV/INIT_SET/MODEL).
+
+### Notes
+- Initial-condition variables default to power centrality p75 set. Switch via `INIT_SET`.
+- ZINB retains cross-firm initial-condition effects via random intercept + Mundlak means; use `poisson_fe` only for robustness since firm FE would absorb firm-level constants.
+- All outputs are written to `notebooks/analysis_outputs/` with informative filenames.
+
 ## Table of Contents
 1. [Installation](#installation)
 2. [Quick Start](#quick-start)

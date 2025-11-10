@@ -285,18 +285,51 @@ centrality_df = centrality.compute_centralities_for_networks(networks)
    - Uses approximate betweenness for large networks (k=500 samples)
 
 3. **`pwr_max`**: Maximum beta for power centrality (1/λ_max)
-   - Inverse of largest eigenvalue of adjacency matrix
+   - **Definition**: Inverse of largest eigenvalue (λ_max) of adjacency matrix
+   - **Meaning**: Upper bound for β parameter in Bonacich power centrality
+   - **Formula**: `pwr_max = 1 / λ_max` where λ_max = largest eigenvalue of adjacency matrix A
+   - **Usage**: Reference value for β calculation; not a centrality measure itself
    - Always computed
 
 4. **`pwr_p0`**: Bonacich power centrality (β=0.0)
-   - Equivalent to degree centrality when β=0
-   - Normalized to [0, 1] range
+   - **Definition**: Power centrality with β=0 (unweighted status)
+   - **Formula**: β = 0 × (1/λ_max) = 0
+   - **Equivalent to**: Degree centrality when β=0
+   - **Normalized**: Yes, to [0, 1] range
+   - **Usage**: Baseline measure (equivalent to degree centrality)
 
 5. **`pwr_p75`**: Bonacich power centrality (β=0.75)
-   - Normalized to [0, 1] range
+   - **Definition**: Power centrality with β = 0.75 × (1/λ_max)
+   - **Formula**: β = ρ × (1/λ_max) where ρ = 0.75
+   - **Meaning**: Weighted status with moderate diffusion (ρ=0.75)
+   - **Normalized**: Yes, to [0, 1] range
+   - **Usage**: Primary measure for robustness checks (following Podolny 2005)
 
 6. **`pwr_p99`**: Bonacich power centrality (β=0.99)
-   - Normalized to [0, 1] range
+   - **Definition**: Power centrality with β = 0.99 × (1/λ_max)
+   - **Formula**: β = ρ × (1/λ_max) where ρ = 0.99
+   - **Meaning**: Weighted status with high diffusion (ρ=0.99, near maximum)
+   - **Normalized**: Yes, to [0, 1] range
+   - **Usage**: High diffusion sensitivity analysis
+
+**Bonacich Power Centrality Details**:
+- **Theoretical Foundation**: Bonacich (1987) power centrality measures actor status based on status of those deferring to them
+- **Calculation Formula**: `c = (I - βA)^(-1) A 1`
+  - `I`: Identity matrix
+  - `A`: Adjacency matrix
+  - `β`: Diffusion parameter (β = ρ × (1/λ_max))
+  - `1`: Column vector of ones
+- **β Parameter Selection**:
+  - `β = ρ × (1/λ_max)` where `ρ ∈ [0, 1)`
+  - `λ_max`: Largest eigenvalue of adjacency matrix
+  - `ρ = 0`: Unweighted status (equivalent to degree centrality)
+  - `ρ = 0.75`: Weighted status (following Podolny 2005)
+  - `ρ = 0.99`: High diffusion (near maximum)
+- **α Scaling**: 
+  - Bonacich (1987) suggests scaling constant α so that squared length of status vector equals n (number of actors)
+  - **Current Implementation**: α scaling is **omitted** (optional for cross-network comparison)
+  - Status values are normalized by maximum value instead (when `normalize_power=True`)
+- **Initial Partner Status**: All power measures (`pwr_p0`, `pwr_p75`, `pwr_p99`, `pwr_max`) are used to compute initial partner status variables (`initial_pwr_*_mean/max/min`)
 
 7. **`constraint`**: Burt's structural holes measure
    - Measures network constraint (inverse of structural holes)
@@ -446,12 +479,17 @@ initial_ties_df = imprinting.compute_all_initial_partner_status(
 **Output Variables** (for each centrality measure):
 - `initial_dgr_cent_mean`, `initial_dgr_cent_max`, `initial_dgr_cent_min`
 - `initial_btw_cent_mean`, `initial_btw_cent_max`, `initial_btw_cent_min`
-- `initial_pwr_max_mean`, `initial_pwr_max_max`, `initial_pwr_max_min`
-- `initial_pwr_p0_mean`, `initial_pwr_p0_max`, `initial_pwr_p0_min`
-- `initial_pwr_p75_mean`, `initial_pwr_p75_max`, `initial_pwr_p75_min`
-- `initial_pwr_p99_mean`, `initial_pwr_p99_max`, `initial_pwr_p99_min`
+- `initial_pwr_max_mean`, `initial_pwr_max_max`, `initial_pwr_max_min` (reference value: 1/λ_max)
+- `initial_pwr_p0_mean`, `initial_pwr_p0_max`, `initial_pwr_p0_min` (β=0, equivalent to degree)
+- `initial_pwr_p75_mean`, `initial_pwr_p75_max`, `initial_pwr_p75_min` (β=0.75×(1/λ_max), primary robustness check)
+- `initial_pwr_p99_mean`, `initial_pwr_p99_max`, `initial_pwr_p99_min` (β=0.99×(1/λ_max), high diffusion)
 - `initial_constraint_mean`, `initial_constraint_max`, `initial_constraint_min`
 - `initial_ego_dens_mean`, `initial_ego_dens_max`, `initial_ego_dens_min`
+
+**Note on Power Measures**:
+- All Bonacich power centrality measures (`pwr_max`, `pwr_p0`, `pwr_p75`, `pwr_p99`) are automatically included when `centrality_measures=None`
+- `pwr_max` represents the reference value (1/λ_max) used for β calculation, not a centrality measure itself
+- Each power measure captures different diffusion levels: `pwr_p0` (no diffusion), `pwr_p75` (moderate), `pwr_p99` (high)
 
 **Additional Variables**:
 - `n_initial_partners`: Number of unique partners

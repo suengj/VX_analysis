@@ -1,3 +1,78 @@
+## diagnostics.R
+## Description, correlation, and VIF diagnostics; export CSVs
+
+suppressPackageStartupMessages({
+  library(dplyr)
+  library(tidyr)
+  library(readr)
+  library(psych)
+  library(Hmisc)
+  library(performance)
+  library(car)
+  library(broom)
+})
+
+#' Ensure output directory
+ensure_outdir <- function(path) {
+  if (!dir.exists(path)) dir.create(path, recursive = TRUE, showWarnings = FALSE)
+}
+
+#' Prepare numeric-only matrix for correlation
+safe_numeric <- function(df) {
+  df %>%
+    mutate(across(everything(), ~ suppressWarnings(as.numeric(.x)))) %>%
+    select(where(is.numeric))
+}
+
+#' Run diagnostics (describe, correlation, VIF)
+#' @param df modeling data
+#' @param dv dependent variable name
+#' @param predictors character vector of predictor names
+#' @param out_dir output directory for CSVs
+run_diagnostics <- function(df, dv, predictors, out_dir) {
+  ensure_outdir(out_dir)
+  
+  # 1) Description
+  desc_df <- psych::describe(df %>% select(all_of(c(dv, predictors))) %>% safe_numeric())
+  desc_out <- file.path(out_dir, paste0("diagnostics_description_", dv, ".csv"))
+  readr::write_csv(tibble::rownames_to_column(as.data.frame(desc_df), var = "variable"), desc_out)
+  
+  # 2) Correlation (numeric only)
+  corr_input <- df %>% select(all_of(c(dv, predictors))) %>% safe_numeric() %>% as.data.frame()
+  rc <- Hmisc::rcorr(as.matrix(corr_input))
+  corr_r <- as.data.frame(rc$r) %>% tibble::rownames_to_column("var1")
+  corr_p <- as.data.frame(rc$P) %>% tibble::rownames_to_column("var1")
+  readr::write_csv(corr_r, file.path(out_dir, paste0("diagnostics_corr_r_", dv, ".csv")))
+  readr::write_csv(corr_p, file.path(out_dir, paste0("diagnostics_corr_p_", dv, ".csv")))
+  
+  # 3) VIF
+  # Primary attempt: performance::check_collinearity on Gaussian proxy GLM
+  f_str <- paste0("log1p(", dv, ") ~ ", paste(predictors, collapse = " + "))
+  glm_proxy <- try(stats::lm(stats::as.formula(f_str), data = df), silent = TRUE)
+  
+  vif_out_path <- file.path(out_dir, paste0("diagnostics_vif_", dv, ".csv"))
+  if (!inherits(glm_proxy, "try-error")) {
+    # Try performance first
+    cc <- try(performance::check_collinearity(glm_proxy), silent = TRUE)
+    if (!inherits(cc, "try-error")) {
+      cc_df <- as.data.frame(cc)
+      readr::write_csv(cc_df, vif_out_path)
+      return(invisible(TRUE))
+    }
+    # Fallback to car::vif
+    cv <- try(car::vif(glm_proxy), silent = TRUE)
+    if (!inherits(cv, "try-error")) {
+      cv_df <- tibble::tibble(term = names(cv), VIF = as.numeric(cv))
+      readr::write_csv(cv_df, vif_out_path)
+      return(invisible(TRUE))
+    }
+  }
+  
+  # If both methods fail
+  readr::write_csv(tibble::tibble(note = "VIF not computed (model fit failed)"), vif_out_path)
+  invisible(FALSE)
+}
+
 # Regression Diagnostics
 #
 # This script provides diagnostic tools for regression models including:
