@@ -101,7 +101,12 @@ load_analysis_data <- function(
   }
   
   # Ensure common controls present (fill NA if absent)
-  control_cols <- c("firmage","early_stage_ratio","industry_blau","inv_amt","dgr_cent","constraint")
+  control_cols <- c(
+    "firmage","early_stage_ratio","industry_blau",
+    "inv_amt","inv_num","dgr_cent","constraint","sh",
+    "firm_hq_CA","firm_hq_MA","firm_hq_NY",
+    "VC_reputation","market_heat","new_venture_demand","pwr_p75"
+  )
   for (cc in control_cols) {
     if (!cc %in% names(df)) df[[cc]] <- NA_real_
   }
@@ -110,7 +115,9 @@ load_analysis_data <- function(
   init_cols <- c(
     "initial_pwr_p75_mean","initial_pwr_p75_max","initial_pwr_p75_min",
     "initial_pwr_p0_mean","initial_pwr_p0_max","initial_pwr_p0_min",
-    "initial_pwr_p99_mean","initial_pwr_p99_max","initial_pwr_p99_min"
+    "initial_pwr_p99_mean","initial_pwr_p99_max","initial_pwr_p99_min",
+    "initial_constraint_mean","initial_constraint_max","initial_constraint_min",
+    "initial_sh_mean","initial_sh_max","initial_sh_min"
   )
   for (ic in init_cols) {
     if (!ic %in% names(df)) df[[ic]] <- NA_real_
@@ -136,11 +143,15 @@ select_working_columns <- function(df) {
     # DVs
     "perf_IPO","perf_MnA","perf_all",
     # controls
-    "firmage","early_stage_ratio","industry_blau","inv_amt","dgr_cent","constraint",
+    "firmage","early_stage_ratio","industry_blau","inv_amt","inv_num","dgr_cent","constraint","sh",
+    "firm_hq_CA","firm_hq_MA","firm_hq_NY",
+    "VC_reputation","market_heat","new_venture_demand","pwr_p75",
     # initial conditions (p75 default set)
     "initial_pwr_p75_mean","initial_pwr_p75_max","initial_pwr_p75_min",
     "initial_pwr_p0_mean","initial_pwr_p0_max","initial_pwr_p0_min",
-    "initial_pwr_p99_mean","initial_pwr_p99_max","initial_pwr_p99_min"
+    "initial_pwr_p99_mean","initial_pwr_p99_max","initial_pwr_p99_min",
+    "initial_constraint_mean","initial_constraint_max","initial_constraint_min",
+    "initial_sh_mean","initial_sh_max","initial_sh_min"
   )
   df %>% dplyr::select(any_of(keep))
 }

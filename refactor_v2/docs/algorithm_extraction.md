@@ -157,8 +157,8 @@ where p_vq = proportion of v's connections to q
    power_p99 = compute_power_centrality(network, beta=0.99 * pwr_max)    # ρ = 0.99
    # Note: pwr_max is stored as reference value (1/λ_max), not a centrality measure
    
-   # Constraint
    constraint = compute_constraint(network)
+   sh = compute_structural_holes(network)  # Burt effective size
 
 4. 결과 병합:
    result = DataFrame({
@@ -170,7 +170,8 @@ where p_vq = proportion of v's connections to q
        'pwr_p0': power_p0,        # β = 0 (equivalent to degree centrality)
        'pwr_p75': power_p75,      # β = 0.75 × (1/λ_max)
        'pwr_p99': power_p99,      # β = 0.99 × (1/λ_max)
-       'constraint_value': constraint
+       'constraint_value': constraint,
+       'sh': sh                   # Burt structural holes (effective size)
    })
 
 5. 반환:
@@ -632,7 +633,8 @@ centrality_df = pd.DataFrame({
     'pwr_p75': float,
     'pwr_max': float,
     'pwr_zero': float,
-    'constraint_value': float
+    'constraint_value': float,
+    'sh': float
 })
 
 # Sampled data

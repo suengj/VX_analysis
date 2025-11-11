@@ -202,6 +202,41 @@ def compute_constraint(G: nx.Graph,
         return {node: 0.0 for node in G.nodes()}
 
 
+def compute_structural_holes(G: nx.Graph,
+                             weighted: bool = False,
+                             weight: str = 'weight') -> Dict[str, float]:
+    """
+    Compute Burt's structural holes measure as 1 - constraint
+
+    Parameters
+    ----------
+    G : nx.Graph
+        Network
+    weighted : bool, default=False
+        If True, use edge weights for constraint calculation
+    weight : str, default='weight'
+        Edge weight attribute name
+
+    Returns
+    -------
+    Dict[str, float]
+        Structural holes values (1 - constraint), bounded to [0, 1]
+    """
+    try:
+        weight_param = weight if weighted else None
+        constraint_dict = nx.constraint(G, weight=weight_param)
+        sh_dict = {}
+        for node, val in constraint_dict.items():
+            if val is None:
+                sh_dict[node] = 0.0
+            else:
+                sh_dict[node] = max(0.0, min(1.0, 1.0 - val))
+        return sh_dict
+    except Exception as e:
+        logger.warning(f"Error computing structural holes: {e}")
+        return {node: 0.0 for node in G.nodes()}
+
+
 def compute_ego_density(G: nx.Graph) -> Dict[str, float]:
     """
     Compute ego network density (unweighted)
@@ -252,11 +287,13 @@ def compute_all_centralities(G: nx.Graph,
                             compute_betweenness: bool = True,
                             compute_power: bool = True,
                             compute_constraint_measure: bool = True,
+                            compute_structural_holes_measure: bool = True,
                             compute_ego_density_measure: bool = True,
                             use_weighted_degree: bool = False,
                             use_weighted_betweenness: bool = False,
                             use_weighted_power: bool = False,
                             use_weighted_constraint: bool = False,
+                            use_weighted_structural_holes: bool = False,
                             weight_column: str = 'weight',
                             normalize_degree: bool = False,
                             normalize_betweenness: bool = True,
@@ -286,6 +323,8 @@ def compute_all_centralities(G: nx.Graph,
         Compute power centrality
     compute_constraint_measure : bool, default=True
         Compute constraint
+    compute_structural_holes_measure : bool, default=True
+        Compute structural holes (effective size)
     compute_ego_density_measure : bool, default=True
         Compute ego network density
     use_weighted_degree : bool, default=False
@@ -296,6 +335,8 @@ def compute_all_centralities(G: nx.Graph,
         Use edge weights for power centrality (False = unweighted)
     use_weighted_constraint : bool, default=False
         Use edge weights for constraint (False = unweighted)
+    use_weighted_structural_holes : bool, default=False
+        Use edge weights for structural holes (effective size)
     weight_column : str, default='weight'
         Edge weight attribute name
     normalize_degree : bool, default=False
@@ -406,6 +447,15 @@ def compute_all_centralities(G: nx.Graph,
         )
         result['constraint'] = [constraint_vals.get(node, np.nan) for node in G.nodes()]
     
+    # Structural holes (effective size)
+    if compute_structural_holes_measure:
+        sh_vals = compute_structural_holes(
+            G,
+            weighted=use_weighted_structural_holes,
+            weight=weight_column
+        )
+        result['sh'] = [sh_vals.get(node, 0.0) for node in G.nodes()]
+
     # Ego network density (always unweighted)
     if compute_ego_density_measure:
         ego_dens = compute_ego_density(G)

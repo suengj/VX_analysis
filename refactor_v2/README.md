@@ -2,11 +2,21 @@
 
 ### R Analysis (separate from Python)
 - Use `R/regression/run_imprinting_main.R` as the single entry point.
+- **Configuration**: All variable names must match those in .fst/.parquet output files from Python
+  - **DV**: Dependent variable name (e.g., `"perf_IPO"`)
+  - **Sample window**: `SAMPLE_YEAR_MIN`, `SAMPLE_YEAR_MAX`, `MAX_YEARS_SINCE_INIT`
+  - **After-threshold dummies**: `AFTER_THRESHOLD_LIST`
+  - **Year FE toggles**: `INCLUDE_YEAR_FE_MAIN`, `INCLUDE_YEAR_FE_ROBUST`
+  - **CV**: Control variables list (e.g., `CV_LIST <- c("years_since_init", "after7", ...)`)
+  - **IV / Interaction**: `IV_LIST`, `INTERACTION_TERMS`
+  - **Lagging**: Specify which variables to lag (`VARS_TO_LAG`) vs. use as-is (`VARS_NO_LAG`)
+  - **Factor / Log**: `VARS_TO_FACTOR`, `VARS_TO_LOG`
+  - **Mundlak**: Variables for Mundlak terms (`MUNDLAK_VARS`)
 - Quick run example:
 ```
-DV=perf_IPO INIT_SET=p75 MODEL=zinb Rscript R/regression/run_imprinting_main.R
+DV=perf_IPO MODEL=zinb Rscript R/regression/run_imprinting_main.R
 ```
-- See `USAGE_GUIDE.md` → "R Analysis Quick Start" for full details (DV/IV/CV selection, model switching, outputs).
+- See `USAGE_GUIDE.md` → "R Analysis Quick Start" for full details (variable configuration, model switching, outputs).
 - **Output location**: All statistical results saved to `notebooks/output/` (diagnostics, model coefficients with significance stars, visualization tables).
 
 Python implementation of VC network analysis preprocessing pipeline, optimized for speed and efficiency.

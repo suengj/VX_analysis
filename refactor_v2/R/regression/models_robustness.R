@@ -24,9 +24,12 @@ suppressPackageStartupMessages({
 #' @param dv dependent variable
 #' @param controls character vector of main control variables
 #' @param init_vars optional character vector of initial-condition variables
+#' @param interaction_terms character vector of interaction terms (e.g., "var1:var2")
 #' @param include_year_fe logical
-fit_nb_no_zi_re <- function(df, dv, controls, init_vars = NULL, include_year_fe = TRUE) {
-  rhs <- c(controls, if (!is.null(init_vars)) init_vars else character(0))
+fit_nb_no_zi_re <- function(df, dv, controls, init_vars = NULL, 
+                            interaction_terms = character(0),
+                            include_year_fe = TRUE) {
+  rhs <- c(controls, if (!is.null(init_vars)) init_vars else character(0), interaction_terms)
   rhs <- rhs[!duplicated(rhs)]
   rhs_str <- paste(rhs, collapse = " + ")
   if (include_year_fe) rhs_str <- paste(rhs_str, "+ factor(year)")
@@ -45,9 +48,12 @@ fit_nb_no_zi_re <- function(df, dv, controls, init_vars = NULL, include_year_fe 
 #' @param df data frame
 #' @param dv dependent variable
 #' @param controls character vector of main control variables
+#' @param interaction_terms character vector of interaction terms (e.g., "var1:var2")
 #' @param include_year_fe logical
-fit_poisson_fe <- function(df, dv, controls, include_year_fe = TRUE) {
-  rhs <- controls
+fit_poisson_fe <- function(df, dv, controls, 
+                           interaction_terms = character(0),
+                           include_year_fe = TRUE) {
+  rhs <- c(controls, interaction_terms)
   rhs_str <- paste(rhs, collapse = " + ")
   if (include_year_fe) rhs_str <- paste(rhs_str, "+ factor(year)")
   # Firm FE
@@ -106,17 +112,24 @@ export_poisson_results <- function(model, dv, tag, out_dir) {
 #' @param dv dependent variable
 #' @param controls character vector of main control variables
 #' @param init_vars optional initial-condition variable vector for NB-RE
+#' @param interaction_terms character vector of interaction terms (e.g., "var1:var2")
 #' @param out_dir output directory
 run_robustness_for_dv <- function(df, dv, controls, init_vars = NULL,
+                                  interaction_terms = character(0),
                                   out_dir = file.path(
                                     "/Users","suengj","Documents","Code","Python","Research","VC",
-                                    "refactor_v2","notebooks","output")) {
+                                    "refactor_v2","notebooks","output"),
+                                  include_year_fe = TRUE) {
   # NB without zero-inflation (RE + year FE)
-  nbm <- fit_nb_no_zi_re(df, dv, controls, init_vars = init_vars, include_year_fe = TRUE)
+  nbm <- fit_nb_no_zi_re(df, dv, controls, init_vars = init_vars, 
+                         interaction_terms = interaction_terms,
+                         include_year_fe = include_year_fe)
   export_nb_results(nbm, dv, "nb_nozi_re", out_dir)
   
   # Poisson FE (firm FE + year FE)
-  pm <- fit_poisson_fe(df, dv, controls, include_year_fe = TRUE)
+  pm <- fit_poisson_fe(df, dv, controls, 
+                       interaction_terms = interaction_terms,
+                       include_year_fe = include_year_fe)
   export_poisson_results(pm, dv, "poisson_fe", out_dir)
   
   list(nb_nozi_re = nbm, poisson_fe = pm)

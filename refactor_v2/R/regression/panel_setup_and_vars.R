@@ -1,5 +1,6 @@
 ## panel_setup_and_vars.R
-## Panel keys, derived variables, Mundlak means, and initial-variable selectors
+## Panel keys, derived variables, Mundlak means, lagged variables, and helper functions
+## Note: Variable names are specified directly in run_imprinting_main.R (no automatic generation)
 
 # Auto-install missing packages
 required_packages <- c("dplyr", "tidyr", "stringr", "purrr", "plm")
@@ -82,6 +83,43 @@ create_lagged_vars <- function(df, vars_to_lag) {
   class(result) <- setdiff(class(result), c("pdata.frame", "data.frame"))
   class(result) <- c("tbl_df", "tbl", "data.frame")
   as_tibble(result)
+}
+
+#' Create log-transformed variables
+#' Uses log1p() to create log(1 + x) transformation (handles zeros)
+#' @param df tibble
+#' @param vars_to_log character vector of variable names to log-transform
+#' @return tibble with log-transformed variables (named as {var}_log)
+create_log_vars <- function(df, vars_to_log) {
+  for (var in vars_to_log) {
+    if (var %in% names(df)) {
+      log_var_name <- paste0(var, "_log")
+      df[[log_var_name]] <- log1p(as.numeric(df[[var]]))
+    } else {
+      warning(sprintf("Variable %s not found in data, skipping log transformation", var))
+    }
+  }
+  df
+}
+
+#' Create after-threshold dummy variables (years_since_init > threshold)
+#' @param df tibble with years_since_init column
+#' @param thresholds numeric vector of thresholds (e.g., c(5,7))
+#' @return tibble with after{threshold} dummy columns
+create_after_dummies <- function(df, thresholds) {
+  if (!"years_since_init" %in% names(df)) {
+    warning("years_since_init column missing; after-threshold dummies not created")
+    return(df)
+  }
+  thresholds <- unique(stats::na.omit(as.integer(thresholds)))
+  if (length(thresholds) == 0) {
+    return(df)
+  }
+  for (thr in thresholds) {
+    col_name <- paste0("after", thr)
+    df[[col_name]] <- as.integer(!is.na(df$years_since_init) & df$years_since_init > thr)
+  }
+  df
 }
 
 #' Build initial-condition variable names based on power set and aggregation types

@@ -24,13 +24,15 @@ suppressPackageStartupMessages({
 #' @param init_vars character vector of initial-condition variables
 #' @param controls character vector of main control variables
 #' @param mundlak_terms character vector of Mundlak term names (e.g., "early_stage_ratio_firm_mean")
+#' @param interaction_terms character vector of interaction terms (e.g., "var1:var2")
 #' @param include_year_fe logical
 build_formula <- function(dv,
                           init_vars,
                           controls,
                           mundlak_terms = character(0),
+                          interaction_terms = character(0),
                           include_year_fe = TRUE) {
-  rhs <- c(init_vars, controls, mundlak_terms)
+  rhs <- c(init_vars, controls, mundlak_terms, interaction_terms)
   rhs <- rhs[!duplicated(rhs)]
   rhs_str <- paste(rhs, collapse = " + ")
   if (include_year_fe) {
@@ -47,11 +49,13 @@ build_formula <- function(dv,
 #' @param init_vars initial-condition variables
 #' @param controls main control variables
 #' @param mundlak_terms Mundlak term names
+#' @param interaction_terms interaction terms (e.g., "var1:var2")
 #' @param include_year_fe include year FE
 #' @return glmmTMB object
 fit_zinb <- function(df, dv, init_vars, controls, mundlak_terms = character(0),
+                     interaction_terms = character(0),
                      include_year_fe = TRUE) {
-  fml <- build_formula(dv, init_vars, controls, mundlak_terms, include_year_fe)
+  fml <- build_formula(dv, init_vars, controls, mundlak_terms, interaction_terms, include_year_fe)
   glmmTMB::glmmTMB(
     formula = fml,
     ziformula = ~ 1,
@@ -107,12 +111,15 @@ export_glmmTMB_results <- function(model, dv, model_tag, out_dir) {
 #' @param init_vars character vector of initial-condition variables
 #' @param controls character vector of main control variables
 #' @param mundlak_terms character vector of Mundlak term names
+#' @param interaction_terms character vector of interaction terms (e.g., "var1:var2")
 #' @param out_dir output dir
 run_main_zinb_for_dv <- function(df, dv, init_vars, controls, mundlak_terms,
+                                 interaction_terms = character(0),
                                  out_dir = file.path(
                                    "/Users","suengj","Documents","Code","Python","Research","VC",
-                                   "refactor_v2","notebooks","output")) {
-  model <- fit_zinb(df, dv, init_vars, controls, mundlak_terms, include_year_fe = TRUE)
+                                   "refactor_v2","notebooks","output"),
+                                 include_year_fe = TRUE) {
+  model <- fit_zinb(df, dv, init_vars, controls, mundlak_terms, interaction_terms, include_year_fe = include_year_fe)
   # Create model tag from init_vars (extract p75/p0/p99 if present)
   init_set <- if (any(grepl("p75", init_vars))) "p75" else if (any(grepl("p0", init_vars))) "p0" else if (any(grepl("p99", init_vars))) "p99" else "unknown"
   export_glmmTMB_results(model, dv, paste0("zinb_", init_set), out_dir)

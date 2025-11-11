@@ -142,9 +142,13 @@ Where:
 # Conditional model
 perf_IPO_{i,t} ~ ZINB(μ_{i,t}, θ)
 log(μ_{i,t}) = β_0 + β_1·initial_pwr_p75_mean_i + 
-               β_2·years_since_init_{i,t} + 
-               β_3·early_stage_ratio_{i,t-1} +  # Lagged by 1 period
-               ... (other lagged controls) +
+               β_2·years_since_init_{i,t} +        # No lag (time-adjusted)
+               β_3·after7_{i,t} +                  # No lag (dummy)
+               β_4·firmage_log_{i,t} +             # No lag (already time-adjusted)
+               β_5·early_stage_ratio_{i,t-1} +    # Lagged by 1 period
+               β_6·industry_blau_{i,t-1} +         # Lagged by 1 period
+               β_7·inv_amt_log_{i,t-1} +           # Lagged by 1 period
+               β_8·dgr_cent_{i,t-1} +              # Lagged by 1 period
                β_k·early_stage_ratio_firm_mean_i + 
                ... (other Mundlak terms) +
                γ_t + u_i
@@ -161,8 +165,11 @@ logit(π_{i,t}) = α_0
 
 **Variables included**:
 - **Initial conditions**: `initial_pwr_p75_mean` (or `p0`/`p99` based on `INIT_SET`) — **no lag** (firm-level constants)
-- **Time-varying controls (lagged)**: `firmage_log_lag1`, `early_stage_ratio_lag1`, `industry_blau_lag1`, `inv_amt_log_lag1`, `dgr_cent_lag1` — **lagged by 1 period** (`X_{i,t-1}` predicts `y_{i,t}`)
-- **Time-since/dummy variables (no lag)**: `years_since_init`, `after7` — **no lag** (already time-adjusted or dummy)
+- **Time-varying controls (lagged)**: `early_stage_ratio_lag1`, `industry_blau_lag1`, `inv_amt_log_lag1`, `dgr_cent_lag1` — **lagged by 1 period** (`X_{i,t-1}` predicts `y_{i,t}`)
+- **Time-adjusted/dummy variables (no lag)**: `years_since_init`, `after7`, `firmage_log` — **no lag** (already time-adjusted or dummy)
+  - `firmage_log`: Already reflects time difference (firmage = year - founding_year), so lagging would be redundant
+  - `years_since_init`: Already time-adjusted variable (years since initial network formation)
+  - `after7`: Dummy variable (no temporal ordering issue)
 - **Mundlak terms**: `early_stage_ratio_firm_mean`, `industry_blau_firm_mean`, `inv_amt_log_firm_mean`, `dgr_cent_firm_mean` — **no lag** (firm-level constants)
 
 **Why lag time-varying covariates?**
@@ -170,13 +177,20 @@ logit(π_{i,t}) = α_0
 - **Causal interpretation**: `X_{i,t-1}` → `y_{i,t}` provides clearer causal interpretation (past characteristics predict future outcomes)
 - **Standard practice**: Panel data analysis typically uses lagged predictors to establish temporal precedence
 
+**Why some variables don't need lagging?**
+- **`firmage_log`**: Already reflects time difference (firmage = year - founding_year). Lagging would be redundant since the variable itself already captures the temporal dimension.
+- **`years_since_init`**: Already time-adjusted variable (years since initial network formation). Similar to `firmage_log`, it already reflects temporal distance.
+- **`after7`**: Dummy variable indicating whether 7+ years have passed since initial network formation. No temporal ordering issue.
+
 #### Interpretation
 
 **Coefficients**:
 - **Initial condition effects** (`β_1`): Persistent effect of initial partner status on future performance
 - **Time-varying effects (lagged)** (`β_3`, ...): Effects of past firm characteristics (t-1) on current performance (t)
   - Example: `early_stage_ratio_lag1` coefficient shows how last year's early-stage investment ratio affects this year's exits
-- **Time-since effects** (`β_2`): Effect of time since initial network formation (already time-adjusted, no lag)
+- **Time-adjusted effects (no lag)** (`β_2`, ...): Effects of time-adjusted variables on current performance
+  - Example: `firmage_log` coefficient shows how firm age (already reflecting time difference) affects performance
+  - Example: `years_since_init` coefficient shows how time since initial network formation affects performance
 - **Mundlak terms** (`β_k`, ...): Control for correlation between unobserved firm heterogeneity and time-varying covariates
 
 **Zero-inflation probability** (`π_{i,t}`):

@@ -13,28 +13,38 @@ This section documents the R-only pipeline for imprinting analysis. It is indepe
 2) Ensure required packages are installed: `glmmTMB`, `psych`, `Hmisc`, `performance`, `broom`, `broom.mixed`, `arrow`, `dplyr`, `tidyr`, `readr`, `plm`.
 3) Option A (edit in file):
    - Open `R/regression/run_imprinting_main.R`
-   - **Configuration Section** (lines ~19-69):
-     - `DV`: `"perf_IPO"` | `"perf_all"` | `"perf_MnA"`
-     - `INIT_SET`: `"p75"` | `"p0"` | `"p99"` (power centrality set)
-     - `INIT_VAR_AGG_TYPES`: `c("mean")` | `c("max")` | `c("min")` | `c("mean", "max")` etc. (which aggregations to include)
-     - `MODEL`: `"zinb"` | `"poisson_fe"` | `"nb_nozi_re"` | `"all"`
-   - **Variable Configuration Section** (lines ~47-69):
-     - `MAIN_CONTROLS`: Edit to add/remove main control variables
-     - `MUNDLAK_VARS`: Edit to control which variables get firm-level means (Mundlak terms)
+   - **Configuration Section** (all variable names must match those in .fst/.parquet files):
+     - **1. DV**: `DV <- "perf_IPO"` | `"perf_all"` | `"perf_MnA"`
+     - **2. Sample window**: `SAMPLE_YEAR_MIN`, `SAMPLE_YEAR_MAX` (inclusive year bounds) and `MAX_YEARS_SINCE_INIT`
+     - **3. After-threshold dummies**: `AFTER_THRESHOLD_LIST <- c(5, 7, ...)` → creates `after5`, `after7`, ...
+     - **4. Year FE toggles**: `INCLUDE_YEAR_FE_MAIN`, `INCLUDE_YEAR_FE_ROBUST`
+     - **5. CV**: `CV_LIST <- c("years_since_init", "after7", "firmage", ...)`
+     - **6. IV & interactions**: `IV_LIST`, `INTERACTION_TERMS`
+     - **7. Lagging**: `VARS_NO_LAG`, `VARS_TO_LAG`
+     - **8. Factor**: `VARS_TO_FACTOR`
+     - **9. Log transform**: `VARS_TO_LOG`
+     - **10. Mundlak**: `MUNDLAK_VARS`
+     - **11. Model**: `MODEL <- "zinb" | "poisson_fe" | "nb_nozi_re" | "all"`
    - Run the script.
 4) Option B (command line):
    ```
-   DV=perf_IPO INIT_SET=p75 MODEL=zinb Rscript R/regression/run_imprinting_main.R
+   DV=perf_IPO MODEL=zinb Rscript R/regression/run_imprinting_main.R
    ```
 
 ### What it does
 - Loads latest dataset from `notebooks/analysis_outputs/final_analysis_*.parquet` (fallback: Feather).
-- Prepares panel keys and derived variables (e.g., `years_since_init`, `firmage_log`, Mundlak means).
-- **Creates lagged variables**: Time-varying covariates are lagged by 1 period (`X_{i,t-1}` predicts `y_{i,t}`) to avoid simultaneity bias.
+- **Filters time window**: Optional calendar-year filter (`SAMPLE_YEAR_MIN`, `SAMPLE_YEAR_MAX`) and years-since-initial cutoff (`MAX_YEARS_SINCE_INIT`).
+- **Keeps configuration-safe columns**: Missing DV/CV/IV/lag/factor/Mundlak columns are auto-created as `NA` so diagnostics never fail when you change variable names.
+- **Creates after-threshold dummies**: For each value in `AFTER_THRESHOLD_LIST`, adds `after{threshold}` (1 if `years_since_init > threshold`).
+- **Converts variables to factors**: Variables specified in `VARS_TO_FACTOR` are automatically converted using `factor()`.
+- **Creates log transforms**: Variables in `VARS_TO_LOG` are transformed via `log1p()` and suffixed with `_log` before lagging.
+- **Creates Mundlak terms**: Firm-level means are created for variables in `MUNDLAK_VARS` (e.g., `early_stage_ratio` → `early_stage_ratio_firm_mean`).
+- **Creates lagged variables**: Variables in `VARS_TO_LAG` are lagged by 1 period (`X_{i,t-1}` predicts `y_{i,t}`) to avoid simultaneity bias.
+- Prepares panel keys and derived variables (e.g., `years_since_init`, `firmage_log`).
 - Runs diagnostics: description, correlation, VIF (CSV outputs saved to `notebooks/output/`).
 - Fits models:
-  - Main: ZINB (firm random intercept + year fixed effects, zero-inflation intercept-only).
-  - Robustness: Poisson FE (firm FE + year FE) and NB (no ZI) with firm RE + year FE.
+  - Main: ZINB (firm random intercept + optional year fixed effects, zero-inflation intercept-only).
+  - Robustness: Poisson FE (firm FE + optional year FE) and NB (no ZI) with firm RE + optional year FE.
 - Exports tidy results with significance stars (`***`, `**`, `*`) to `notebooks/output/`.
 - Creates coefficient tables for plotting (also saved to `notebooks/output/`).
 
@@ -46,14 +56,15 @@ This section documents the R-only pipeline for imprinting analysis. It is indepe
 - `R/regression/models_robustness.R`: Poisson FE, NB (no-ZI).
 - `R/regression/results_export.R`: generic model exporters.
 - `R/regression/visualization_prep.R`: tidy coefficient tables for plots.
-- `R/regression/run_imprinting_main.R`: orchestrator (edit-only DV/INIT_SET/MODEL).
+- `R/regression/run_imprinting_main.R`: orchestrator (edit DV, CV, IV, Interaction, Lagging, Factor, Mundlak, Model).
 
 ### Output Files
 All statistical results are saved to `notebooks/output/` with timestamps (yymmdd_hhmm format):
 - **Diagnostics**: `diagnostics_description_{DV}_{timestamp}.csv`, `diagnostics_corr_r_{DV}_{timestamp}.csv`, `diagnostics_corr_p_{DV}_{timestamp}.csv`, `diagnostics_vif_{DV}_{timestamp}.csv`
-- **Main Model (ZINB)**: `model_{DV}_zinb_{INIT_SET}_cond_{timestamp}.csv`, `model_{DV}_zinb_{INIT_SET}_zi_{timestamp}.csv`, `model_{DV}_zinb_{INIT_SET}_glance_{timestamp}.csv`
+- **Main Model (ZINB)**: `model_{DV}_zinb_{IV_TAG}_cond_{timestamp}.csv`, `model_{DV}_zinb_{IV_TAG}_zi_{timestamp}.csv`, `model_{DV}_zinb_{IV_TAG}_glance_{timestamp}.csv`
 - **Robustness Models**: `robust_{DV}_nb_nozi_re_cond_{timestamp}.csv`, `robust_{DV}_poisson_fe_coef_{timestamp}.csv`, etc.
-- **Visualization**: `viz_coefs_{DV}_{INIT_SET}_{MODEL}_{timestamp}.csv`
+- **Visualization**: `viz_coefs_{DV}_{IV_TAG}_{MODEL}_{timestamp}.csv`
+- Note: `{IV_TAG}` is derived from `IV_LIST` variable names (sanitized for filename)
 
 All coefficient tables include a `stars` column with significance indicators:
 - `***`: p < 0.001
@@ -65,33 +76,81 @@ All coefficient tables include a `stars` column with significance indicators:
 
 ### Variable Configuration
 
-All variables that enter the models are controlled in `run_imprinting_main.R`:
+All variables that enter the models are controlled in `run_imprinting_main.R`. **All variable names must match those in the .fst/.parquet output files from Python.**
 
-1. **Initial Condition Variables** (`INIT_VAR_AGG_TYPES`):
-   - Controls which aggregations (`_mean`, `_max`, `_min`) are included for initial partner status
-   - Example: `INIT_VAR_AGG_TYPES <- c("mean")` includes only `initial_pwr_p75_mean` (if `INIT_SET="p75"`)
-   - Example: `INIT_VAR_AGG_TYPES <- c("mean", "max")` includes both `initial_pwr_p75_mean` and `initial_pwr_p75_max`
+Configuration order: **DV → Sample Window → After-threshold → Year FE → CV → IV (with Interaction) → Lagging → Factor → Log → Mundlak → Model**
 
-2. **Main Control Variables** (`MAIN_CONTROLS`):
-   - Time-varying covariates: `years_since_init`, `after7`, `firmage_log`, `early_stage_ratio`, `industry_blau`, `inv_amt_log`, `dgr_cent`
-   - **Note**: Time-varying variables are automatically lagged by 1 period (`X_{t-1}` predicts `y_t`) to avoid simultaneity bias
-   - Variables that are NOT lagged: `years_since_init` (time-since variable), `after7` (dummy variable)
-   - Edit this list to add/remove control variables
+1. **Dependent Variable (DV)**:
+   - `DV`: Variable name from output file (e.g., `"perf_IPO"`, `"perf_all"`, `"perf_MnA"`)
 
-3. **Mundlak Terms** (`MUNDLAK_VARS`):
-   - Variables listed here automatically get firm-level means created (e.g., `early_stage_ratio` → `early_stage_ratio_firm_mean`)
-   - These control for unobserved firm heterogeneity in random effects models
-   - Default: `c("early_stage_ratio", "industry_blau", "inv_amt_log", "dgr_cent")`
-   - Edit this list to control which variables get Mundlak terms
+2. **Sample Window**:
+   - `SAMPLE_YEAR_MIN`, `SAMPLE_YEAR_MAX`: Inclusive calendar-year filter (set `NULL` to skip a bound)
+   - `MAX_YEARS_SINCE_INIT`: Drop firm-years with `years_since_init` above the threshold (set `Inf` or `NULL` to disable)
 
-**Note**: All variable lists are centralized in `run_imprinting_main.R` for easy inspection and modification. No need to dig into other R files to change which variables enter models.
+3. **After-Threshold Dummies**:
+   - `AFTER_THRESHOLD_LIST`: Numeric vector; each value creates `after{threshold}` using `years_since_init`
+
+4. **Year Fixed Effects**:
+   - `INCLUDE_YEAR_FE_MAIN`: `TRUE/FALSE` toggle for year FE in the main ZINB model
+   - `INCLUDE_YEAR_FE_ROBUST`: Same toggle applied to robustness models
+
+5. **Control Variables (CV)**:
+   - `CV_LIST`: Character vector of control variable names from output file
+   - Example: `CV_LIST <- c("years_since_init", "after7", "firmage", "early_stage_ratio", ...)`
+   - Variables listed here will be used in models, but lagging is controlled separately
+
+6. **Independent Variables (IV)**:
+   - `IV_LIST`: Character vector of independent variable names from output file
+   - Example: `IV_LIST <- c("initial_pwr_p75_mean", "initial_pwr_p0_mean", "some_other_var")`
+   - Default: `character(0)` (empty)
+   - **Interaction Terms** (`INTERACTION_TERMS`):
+     - List of character vectors, each containing two variable names to interact
+     - Format: `list(c("var1", "var2"), c("var3", "var4"))` creates `var1:var2` and `var3:var4` interactions
+     - Example: `INTERACTION_TERMS <- list(c("initial_pwr_p75_mean", "years_since_init"))`
+     - Default: `list()` (no interactions)
+
+7. **Lagging Configuration**:
+   - **`VARS_NO_LAG`**: Variables used as-is (no lagging)
+     - Typically: time-adjusted variables, dummy variables, firm-level constants
+     - Example: `VARS_NO_LAG <- c("years_since_init", "after7", "firmage")`
+   - **`VARS_TO_LAG`**: Variables to lag by 1 period (`X_{t-1}` predicts `y_{t}`)
+     - These will be automatically lagged and used as `{var}_lag1` in models
+     - Example: `VARS_TO_LAG <- c("early_stage_ratio", "industry_blau", "inv_amt", "dgr_cent")`
+     - Note: Variables in `VARS_TO_LAG` must also be in `CV_LIST`
+
+8. **Factor Variables**:
+   - `VARS_TO_FACTOR`: Variables to convert to factors (categorical variables)
+   - These will be automatically converted using `factor()` function
+   - Example: `VARS_TO_FACTOR <- c("firm_hq", "some_categorical_var")`
+   - Default: `character(0)` (empty)
+
+9. **Log Transformation**:
+   - `VARS_TO_LOG`: Variables transformed via `log1p()`; generated columns are `{var}_log`
+   - Example: `VARS_TO_LOG <- c("inv_amt", "firmage", "dgr_cent")`
+
+10. **Mundlak Terms**:
+    - `MUNDLAK_VARS`: Variables for Mundlak terms (firm-level means of time-varying covariates)
+    - These are created automatically as `{var}_firm_mean` for each variable listed here
+    - Example: `MUNDLAK_VARS <- c("early_stage_ratio", "industry_blau", "inv_amt_log", "dgr_cent")`
+    - Resulting Mundlak terms: `early_stage_ratio_firm_mean`, `industry_blau_firm_mean`, etc.
+    - These control for unobserved firm heterogeneity in random effects models
+
+**Key Points**:
+- All variable names must match exactly those in the .fst/.parquet output files from Python
+- Missing variables are auto-created as `NA` so diagnostics/modeling never fail when experimenting
+- After-threshold (`afterX`) dummies and log transforms are generated automatically from the configuration
+- Year fixed effects are optional toggles; defaults keep models parsimonious unless you opt in
+- Variables in `VARS_TO_LAG` must also be in `CV_LIST`
 
 ### Notes
-- Initial-condition variables default to power centrality p75 set with only `_mean` aggregation. Switch via `INIT_SET` and `INIT_VAR_AGG_TYPES`.
-- ZINB retains cross-firm initial-condition effects via random intercept + Mundlak means; use `poisson_fe` only for robustness since firm FE would absorb firm-level constants.
-- Input data is read from `notebooks/analysis_outputs/` (Python preprocessing outputs).
-- All statistical results are written to `notebooks/output/` (separate from input data).
-- Mundlak terms are created automatically from `MUNDLAK_VARS` list in `run_imprinting_main.R` (see `add_mundlak_means()` function in `panel_setup_and_vars.R`).
+- **Variable names**: All variable names must match exactly those in the .fst/.parquet output files from Python. No automatic variable generation - specify variable names directly.
+- **ZINB model**: Retains cross-firm initial-condition effects via random intercept + Mundlak means; use `poisson_fe` only for robustness since firm FE would absorb firm-level constants.
+- **Input data**: Read from `notebooks/analysis_outputs/` (Python preprocessing outputs).
+- **Output location**: All statistical results are written to `notebooks/output/` (separate from input data).
+- **Automatic processing**:
+  - Mundlak terms are created automatically from `MUNDLAK_VARS` list (see `add_mundlak_means()` function in `panel_setup_and_vars.R`)
+  - Lagged variables are created automatically from `VARS_TO_LAG` list (see `create_lagged_vars()` function in `panel_setup_and_vars.R`)
+  - Factor conversion is applied automatically to variables in `VARS_TO_FACTOR`
 
 ## Table of Contents
 1. [Installation](#installation)

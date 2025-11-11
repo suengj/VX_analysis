@@ -452,6 +452,7 @@ initial_ties_with_cent = imprinting.calculate_partner_centrality_by_year(
 ```
 
 **Logic**: For each partner-year pair, merge partner's centrality at that year
+- Centrality frame now includes Burt structural holes (`sh`, effective size)
 - Partner centrality calculated from 5-year lagged network (t-5 to t-1)
 
 #### 5. Compute Initial Partner Status (Partner-Weighted)
@@ -484,6 +485,7 @@ initial_ties_df = imprinting.compute_all_initial_partner_status(
 - `initial_pwr_p75_mean`, `initial_pwr_p75_max`, `initial_pwr_p75_min` (β=0.75×(1/λ_max), primary robustness check)
 - `initial_pwr_p99_mean`, `initial_pwr_p99_max`, `initial_pwr_p99_min` (β=0.99×(1/λ_max), high diffusion)
 - `initial_constraint_mean`, `initial_constraint_max`, `initial_constraint_min`
+- `initial_sh_mean`, `initial_sh_max`, `initial_sh_min` (Burt structural holes / effective size)
 - `initial_ego_dens_mean`, `initial_ego_dens_max`, `initial_ego_dens_min`
 
 **Note on Power Measures**:

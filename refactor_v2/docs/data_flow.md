@@ -335,7 +335,7 @@ centrality_df = pd.concat(results)
 # Output
 centrality_df (147,823 rows)
 # columns: ['firmname', 'year', 'dgr_cent', 'btw_cent', 
-#           'pwr_p75', 'pwr_max', 'pwr_zero', 'constraint']
+#           'pwr_p75', 'pwr_max', 'pwr_zero', 'constraint', 'sh']
 ```
 
 #### Step 3-1: 1:10 샘플링
@@ -506,7 +506,8 @@ partner_cent = (
         'btw_cent': 'mean',     # 나머지는 평균
         'pwr_p75': 'mean',
         'pwr_max': 'mean',
-        'constraint': 'mean'
+        'constraint': 'mean',
+        'sh': 'mean'
     })
     .reset_index()
     .add_prefix('p_')
@@ -523,7 +524,8 @@ focal_cent = (
         'btw_cent': 'mean',
         'pwr_p75': 'mean',
         'pwr_max': 'mean',
-        'constraint': 'mean'
+        'constraint': 'mean',
+        'sh': 'mean'
     })
     .reset_index()
     .add_prefix('f_')
