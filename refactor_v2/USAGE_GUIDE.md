@@ -17,7 +17,7 @@ This section documents the R-only pipeline for imprinting analysis. It is indepe
      - **1. DV**: `DV <- "perf_IPO"` | `"perf_all"` | `"perf_MnA"`
      - **2. Sample window**: `SAMPLE_YEAR_MIN`, `SAMPLE_YEAR_MAX` (inclusive year bounds) and `MAX_YEARS_SINCE_INIT`
      - **3. After-threshold dummies**: `AFTER_THRESHOLD_LIST <- c(5, 7, ...)` → creates `after5`, `after7`, ...
-     - **4. Year FE toggles**: `INCLUDE_YEAR_FE_MAIN`, `INCLUDE_YEAR_FE_ROBUST`
+     - **4. Year FE type**: `YEAR_FE_TYPE_MAIN`, `YEAR_FE_TYPE_ROBUST` (options: `"none"`, `"year"`, `"decade"`)
      - **5. CV**: `CV_LIST <- c("years_since_init", "after7", "firmage", ...)`
      - **6. IV & interactions**: `IV_LIST`, `INTERACTION_TERMS`
      - **7. Lagging**: `VARS_NO_LAG`, `VARS_TO_LAG`
@@ -33,18 +33,20 @@ This section documents the R-only pipeline for imprinting analysis. It is indepe
 
 ### What it does
 - Loads latest dataset from `notebooks/analysis_outputs/final_analysis_*.parquet` (fallback: Feather).
+- **Loads all columns**: All variables from the Parquet/Feather file are loaded (no hardcoded column filtering).
 - **Filters time window**: Optional calendar-year filter (`SAMPLE_YEAR_MIN`, `SAMPLE_YEAR_MAX`) and years-since-initial cutoff (`MAX_YEARS_SINCE_INIT`).
 - **Keeps configuration-safe columns**: Missing DV/CV/IV/lag/factor/Mundlak columns are auto-created as `NA` so diagnostics never fail when you change variable names.
+- **Creates decade variable**: If `YEAR_FE_TYPE_MAIN` or `YEAR_FE_TYPE_ROBUST` is set to `"decade"`, creates `decade` factor variable (80s, 90s, 00s, 10s, 20s) for decade fixed effects.
 - **Creates after-threshold dummies**: For each value in `AFTER_THRESHOLD_LIST`, adds `after{threshold}` (1 if `years_since_init > threshold`).
 - **Converts variables to factors**: Variables specified in `VARS_TO_FACTOR` are automatically converted using `factor()`.
 - **Creates log transforms**: Variables in `VARS_TO_LOG` are transformed via `log1p()` and suffixed with `_log` before lagging.
 - **Creates Mundlak terms**: Firm-level means are created for variables in `MUNDLAK_VARS` (e.g., `early_stage_ratio` → `early_stage_ratio_firm_mean`).
 - **Creates lagged variables**: Variables in `VARS_TO_LAG` are lagged by 1 period (`X_{i,t-1}` predicts `y_{i,t}`) to avoid simultaneity bias.
-- Prepares panel keys and derived variables (e.g., `years_since_init`, `firmage_log`).
+- Prepares panel keys and derived variables (e.g., `years_since_init`, `after7`).
 - Runs diagnostics: description, correlation, VIF (CSV outputs saved to `notebooks/output/`).
 - Fits models:
-  - Main: ZINB (firm random intercept + optional year fixed effects, zero-inflation intercept-only).
-  - Robustness: Poisson FE (firm FE + optional year FE) and NB (no ZI) with firm RE + optional year FE.
+  - Main: ZINB (firm random intercept + optional year/decade fixed effects, zero-inflation intercept-only).
+  - Robustness: Poisson FE (firm FE + optional year/decade FE) and NB (no ZI) with firm RE + optional year/decade FE.
 - Exports tidy results with significance stars (`***`, `**`, `*`) to `notebooks/output/`.
 - Creates coefficient tables for plotting (also saved to `notebooks/output/`).
 
@@ -91,8 +93,12 @@ Configuration order: **DV → Sample Window → After-threshold → Year FE → 
    - `AFTER_THRESHOLD_LIST`: Numeric vector; each value creates `after{threshold}` using `years_since_init`
 
 4. **Year Fixed Effects**:
-   - `INCLUDE_YEAR_FE_MAIN`: `TRUE/FALSE` toggle for year FE in the main ZINB model
-   - `INCLUDE_YEAR_FE_ROBUST`: Same toggle applied to robustness models
+   - `YEAR_FE_TYPE_MAIN`: Year FE type for main ZINB model
+     - `"none"`: No year fixed effects
+     - `"year"`: Full year fixed effects (`factor(year)`) - may cause NA issues with sparse data
+     - `"decade"`: Decade fixed effects (`factor(decade)`) - groups years into 80s, 90s, 00s, 10s, 20s (recommended to avoid NA issues)
+   - `YEAR_FE_TYPE_ROBUST`: Same options applied to robustness models
+   - **Note**: When `"decade"` is selected, a `decade` variable is automatically created from the `year` column
 
 5. **Control Variables (CV)**:
    - `CV_LIST`: Character vector of control variable names from output file
@@ -137,9 +143,10 @@ Configuration order: **DV → Sample Window → After-threshold → Year FE → 
 
 **Key Points**:
 - All variable names must match exactly those in the .fst/.parquet output files from Python
+- **All columns are loaded**: The data loader now loads all columns from Parquet/Feather files (no hardcoded filtering)
 - Missing variables are auto-created as `NA` so diagnostics/modeling never fail when experimenting
 - After-threshold (`afterX`) dummies and log transforms are generated automatically from the configuration
-- Year fixed effects are optional toggles; defaults keep models parsimonious unless you opt in
+- Year fixed effects can be set to `"none"`, `"year"`, or `"decade"`; `"decade"` is recommended to avoid NA issues with sparse data
 - Variables in `VARS_TO_LAG` must also be in `CV_LIST`
 
 ### Notes

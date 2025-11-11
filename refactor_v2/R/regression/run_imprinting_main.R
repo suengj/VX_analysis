@@ -64,9 +64,12 @@ AFTER_THRESHOLD_LIST <- c(7)  # Default includes after7 for backward compatibili
 
 ## 4. Year Fixed Effects Configuration
 ## -----------------------------------------------------------------------------
-# Whether to include calendar-year fixed effects in models
-INCLUDE_YEAR_FE_MAIN <- TRUE    # For main ZINB model
-INCLUDE_YEAR_FE_ROBUST <- FALSE  # For robustness models
+# Year fixed effects options:
+# - "none": No year fixed effects
+# - "year": factor(year) - full year fixed effects (may cause NA issues)
+# - "decade": factor(decade) - decade fixed effects (80s, 90s, 00s, 10s, 20s)
+YEAR_FE_TYPE_MAIN <- "decade"    # For main ZINB model: "none", "year", or "decade"
+YEAR_FE_TYPE_ROBUST <- "none"    # For robustness models: "none", "year", or "decade"
 
 ## 5. Control Variables (CV) Configuration
 ## -----------------------------------------------------------------------------
@@ -74,11 +77,10 @@ INCLUDE_YEAR_FE_ROBUST <- FALSE  # For robustness models
 # These will be divided into lagged vs. non-lagged based on VARS_TO_LAG and VARS_NO_LAG settings below
 CV_LIST <- c(
   "years_since_init",
-  "after7",
+#  "after7",
   "firmage",
   "firm_hq_CA",
   "firm_hq_MA",
-  "firm_hq_NY",
   "early_stage_ratio",
   "industry_blau",
   "inv_amt",
@@ -86,6 +88,7 @@ CV_LIST <- c(
   "dgr_cent",
   "sh",
   "pwr_p0",
+  "ego_dens",
   "VC_reputation",
   "market_heat",
   "new_venture_demand"
@@ -96,14 +99,18 @@ CV_LIST <- c(
 ## -----------------------------------------------------------------------------
 # Independent variables: specify variable names directly from .fst/.parquet file
 # Examples: c("initial_pwr_p75_mean", "initial_pwr_p0_mean", "some_other_var")
-IV_LIST <- c("initial_pwr_p0_mean", "initial_sh_mean")  # Default: empty
+IV_LIST <- c("initial_sh_mean") # c("initial_pwr_p0_mean")  # Default: empty
 # Example:
 # IV_LIST <- c("initial_pwr_p75_mean")
 
 # Interaction terms: list of character vectors, each vector contains two variable names to interact
 # Format: list(c("var1", "var2"), c("var3", "var4")) creates var1:var2 and var3:var4 interactions
 # Example: INTERACTION_TERMS <- list(c("initial_pwr_p75_mean", "years_since_init"))
-INTERACTION_TERMS <- list()  # Default: no interactions
+INTERACTION_TERMS <- list(
+#  c("initial_pwr_p0_mean", "VC_reputation")
+#  c("initial_sh_mean", "VC_reputation")
+  c("initial_sh_mean", "ego_dens")
+)  # Default: no interactions
 # Example:
 # INTERACTION_TERMS <- list(
 #   c("initial_pwr_p75_mean", "years_since_init"),  # Initial status × Time since
@@ -116,7 +123,7 @@ INTERACTION_TERMS <- list()  # Default: no interactions
 # These are typically: time-adjusted variables, dummy variables, firm-level constants
 VARS_NO_LAG <- c(
   "years_since_init",      # Time-since variable (already time-adjusted)
-  "after7",                 # Dummy variable
+#  "after7",                 # Dummy variable
   "firmage"            # Firm age (already reflects time difference)
 )
 
@@ -140,7 +147,7 @@ VARS_TO_LAG <- c(
 ## -----------------------------------------------------------------------------
 # Variables to convert to factors (categorical variables)
 # These will be automatically converted using factor() function
-VARS_TO_FACTOR <- c("firm_hq_CA", "firm_hq_MA", "firm_hq_NY")  # Default: empty
+VARS_TO_FACTOR <- character(0) # c("firm_hq_CA", "firm_hq_MA", "firm_hq_NY")  # Default: empty
 # Example:
 # VARS_TO_FACTOR <- c("firm_hq", "some_categorical_var")
 # Note: Variables will be converted to factors before modeling
@@ -240,6 +247,12 @@ if (!is.null(MAX_YEARS_SINCE_INIT) && is.finite(MAX_YEARS_SINCE_INIT)) {
 ## Build modeling frame: after-threshold dummies, factor conversion, log transformation, Mundlak terms, and lagged variables
 ## -----------------------------------------------------------------------------
 message(sprintf("Preparing modeling frame: DV=%s", DV))
+
+# Create decade variable if needed for year FE
+if (YEAR_FE_TYPE_MAIN == "decade" || YEAR_FE_TYPE_ROBUST == "decade") {
+  message("Creating decade variable for year fixed effects...")
+  df <- create_decade_variable(df)
+}
 
 # Create after-threshold dummies (years_since_init > threshold)
 if (length(AFTER_THRESHOLD_LIST) > 0) {
@@ -403,7 +416,7 @@ if (length(INTERACTION_TERMS) > 0) {
 }
 
 # Combine all predictors for diagnostics (use lagged versions)
-predictors <- c(all_ivs, controls_for_model, mundlak_terms, interaction_terms_str)
+predictors <- c(all_ivs, controls_for_model, mundlak_terms)
 
 ## -----------------------------------------------------------------------------
 ## Diagnostics (Description / Correlation / VIF)
@@ -418,36 +431,39 @@ fitted_models <- list()
 
 if (MODEL %in% c("zinb","all")) {
   message("Fitting main ZINB (firm RE + year FE + Mundlak, zi ~ 1)...")
+  message(sprintf("Year FE type: %s", YEAR_FE_TYPE_MAIN))
   message("Note: Using lagged time-varying covariates (X_{t-1} predicts y_t)")
   m_zinb <- run_main_zinb_for_dv(df, dv = DV, init_vars = all_ivs, 
                                   controls = controls_for_model, 
                                   mundlak_terms = mundlak_terms,
                                   interaction_terms = interaction_terms_str,
                                   out_dir = OUT_DIR,
-                                  include_year_fe = INCLUDE_YEAR_FE_MAIN)
+                                  year_fe_type = YEAR_FE_TYPE_MAIN)
   fitted_models[["ZINB_main"]] <- m_zinb
 }
 
 if (MODEL %in% c("poisson_fe","all")) {
   message("Fitting Poisson FE (firm FE + year FE)...")
+  message(sprintf("Year FE type: %s", YEAR_FE_TYPE_ROBUST))
   message("Note: Using lagged time-varying covariates (X_{t-1} predicts y_t)")
   message("Note: Initial condition variables excluded (absorbed by firm FE)")
   rob_poiss <- run_robustness_for_dv(df, dv = DV, init_vars = NULL, 
                                       controls = controls_for_model, 
                                       interaction_terms = interaction_terms_str,
                                       out_dir = OUT_DIR,
-                                      include_year_fe = INCLUDE_YEAR_FE_ROBUST)
+                                      year_fe_type = YEAR_FE_TYPE_ROBUST)
   fitted_models[["Poisson_FE"]] <- rob_poiss$poisson_fe
 }
 
 if (MODEL %in% c("nb_nozi_re","all")) {
   message("Fitting NB (no ZI), firm RE + year FE...")
+  message(sprintf("Year FE type: %s", YEAR_FE_TYPE_ROBUST))
   message("Note: Using lagged time-varying covariates (X_{t-1} predicts y_t)")
   rob_nb <- run_robustness_for_dv(df, dv = DV, init_vars = all_ivs, 
                                    controls = controls_for_model,
                                    interaction_terms = interaction_terms_str,
                                    out_dir = OUT_DIR,
-                                   include_year_fe = INCLUDE_YEAR_FE_ROBUST)
+                                   year_fe_type = YEAR_FE_TYPE_ROBUST)
   fitted_models[["NB_noZI_RE"]] <- rob_nb$nb_nozi_re
 }
 

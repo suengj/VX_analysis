@@ -6,7 +6,7 @@
   - **DV**: Dependent variable name (e.g., `"perf_IPO"`)
   - **Sample window**: `SAMPLE_YEAR_MIN`, `SAMPLE_YEAR_MAX`, `MAX_YEARS_SINCE_INIT`
   - **After-threshold dummies**: `AFTER_THRESHOLD_LIST`
-  - **Year FE toggles**: `INCLUDE_YEAR_FE_MAIN`, `INCLUDE_YEAR_FE_ROBUST`
+  - **Year FE type**: `YEAR_FE_TYPE_MAIN`, `YEAR_FE_TYPE_ROBUST` (options: `"none"`, `"year"`, `"decade"`)
   - **CV**: Control variables list (e.g., `CV_LIST <- c("years_since_init", "after7", ...)`)
   - **IV / Interaction**: `IV_LIST`, `INTERACTION_TERMS`
   - **Lagging**: Specify which variables to lag (`VARS_TO_LAG`) vs. use as-is (`VARS_NO_LAG`)

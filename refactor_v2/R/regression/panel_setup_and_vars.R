@@ -18,11 +18,10 @@ suppressPackageStartupMessages({
   library(plm)
 })
 
-#' Ensure panel keys (firmname, year) and derive variables
-#' - firmage_log = log1p(firmage)
-#' - inv_amt_log = log1p(inv_amt)
+#' Ensure panel keys (firmname, year) and derive basic variables
 #' - after7 = already created by loader (keep consistent)
 #' - years_since_init kept as integer
+#' Note: Log transformations are handled separately via VARS_TO_LOG in run_imprinting_main.R
 #' @param df tibble
 #' @return tibble
 derive_panel_vars <- function(df) {
@@ -31,11 +30,9 @@ derive_panel_vars <- function(df) {
     mutate(
       firmname = as.character(firmname),
       year = as.integer(year),
-      firmage_log = log1p(as.numeric(firmage)),
-      inv_amt_log = log1p(as.numeric(inv_amt)),
-      # ensure ints
-      years_since_init = as.integer(years_since_init),
-      after7 = as.integer(after7)
+      # ensure ints (if columns exist)
+      years_since_init = if ("years_since_init" %in% names(df)) as.integer(years_since_init) else NA_integer_,
+      after7 = if ("after7" %in% names(df)) as.integer(after7) else NA_integer_
     )
 }
 
@@ -188,6 +185,36 @@ make_model_frame <- function(
     base <- add_mundlak_means(base, controls = c("early_stage_ratio","industry_blau","inv_amt_log","dgr_cent"))
   }
   base
+}
+
+#' Create decade variable from year
+#' Creates a decade variable (e.g., "80s", "90s", "00s", "10s", "20s")
+#' @param df tibble with 'year' column
+#' @return tibble with 'decade' column added
+create_decade_variable <- function(df) {
+  if (!"year" %in% names(df)) {
+    stop("Column 'year' not found in data")
+  }
+  
+  df <- df %>%
+    mutate(
+      decade = case_when(
+        year >= 1980 & year < 1990 ~ "80s",
+        year >= 1990 & year < 2000 ~ "90s",
+        year >= 2000 & year < 2010 ~ "00s",
+        year >= 2010 & year < 2020 ~ "10s",
+        year >= 2020 ~ "20s",
+        TRUE ~ NA_character_
+      ),
+      decade = factor(decade, levels = c("80s", "90s", "00s", "10s", "20s"))
+    )
+  
+  message(sprintf("Created decade variable: %d observations across %d decades",
+                  nrow(df), length(unique(df$decade[!is.na(df$decade)]))))
+  message(sprintf("  Decade distribution: %s",
+                  paste(table(df$decade, useNA = "ifany"), collapse = ", ")))
+  
+  df
 }
 
 

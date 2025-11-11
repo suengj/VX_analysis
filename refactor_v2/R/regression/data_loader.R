@@ -83,9 +83,9 @@ load_analysis_data <- function(
       year = as.integer(year)
     )
   
-  # Derive years_since_init if missing
+  # Derive years_since_init if missing (derived variable, not in original data)
   if (!"years_since_init" %in% names(df)) {
-    if ("initial_year" %in% names(df)) {
+    if ("initial_year" %in% names(df) && "year" %in% names(df)) {
       df <- df %>%
         mutate(years_since_init = as.integer(year - initial_year))
     } else {
@@ -93,75 +93,22 @@ load_analysis_data <- function(
     }
   }
   
-  # Ensure performance variables exist or create with NA (caller can handle)
-  perf_cols <- c("perf_IPO","perf_MnA","perf_all")
-  missing_perf <- setdiff(perf_cols, names(df))
-  if (length(missing_perf) > 0) {
-    df[missing_perf] <- NA_real_
+  # Derive after7 if missing (derived variable, not in original data)
+  if (!"after7" %in% names(df)) {
+    df <- df %>%
+      mutate(after7 = as.integer(!is.na(years_since_init) & years_since_init > 7))
   }
-  
-  # Ensure common controls present (fill NA if absent)
-  control_cols <- c(
-    "firmage","early_stage_ratio","industry_blau",
-    "inv_amt","inv_num","dgr_cent","constraint","sh",
-    "firm_hq_CA","firm_hq_MA","firm_hq_NY",
-    "VC_reputation","market_heat","new_venture_demand","pwr_p75"
-  )
-  for (cc in control_cols) {
-    if (!cc %in% names(df)) df[[cc]] <- NA_real_
-  }
-  
-  # Initial condition variables (default set; others may also exist)
-  init_cols <- c(
-    "initial_pwr_p75_mean","initial_pwr_p75_max","initial_pwr_p75_min",
-    "initial_pwr_p0_mean","initial_pwr_p0_max","initial_pwr_p0_min",
-    "initial_pwr_p99_mean","initial_pwr_p99_max","initial_pwr_p99_min",
-    "initial_constraint_mean","initial_constraint_max","initial_constraint_min",
-    "initial_sh_mean","initial_sh_max","initial_sh_min"
-  )
-  for (ic in init_cols) {
-    if (!ic %in% names(df)) df[[ic]] <- NA_real_
-  }
-  
-  # Coerce numeric columns as needed
-  df <- df %>%
-    mutate(
-      across(any_of(c(perf_cols, control_cols, init_cols)), as.numeric),
-      after7 = as.integer(!is.na(years_since_init) & years_since_init > 7)
-    )
   
   df
 }
 
-#' Select a working subset of columns (safe select)
-#' @param df Data
-#' @return tibble
-select_working_columns <- function(df) {
-  keep <- c(
-    # keys
-    "firmname","year","initial_year","years_since_init","after7",
-    # DVs
-    "perf_IPO","perf_MnA","perf_all",
-    # controls
-    "firmage","early_stage_ratio","industry_blau","inv_amt","inv_num","dgr_cent","constraint","sh",
-    "firm_hq_CA","firm_hq_MA","firm_hq_NY",
-    "VC_reputation","market_heat","new_venture_demand","pwr_p75",
-    # initial conditions (p75 default set)
-    "initial_pwr_p75_mean","initial_pwr_p75_max","initial_pwr_p75_min",
-    "initial_pwr_p0_mean","initial_pwr_p0_max","initial_pwr_p0_min",
-    "initial_pwr_p99_mean","initial_pwr_p99_max","initial_pwr_p99_min",
-    "initial_constraint_mean","initial_constraint_max","initial_constraint_min",
-    "initial_sh_mean","initial_sh_max","initial_sh_min"
-  )
-  df %>% dplyr::select(any_of(keep))
-}
-
-#' Convenience: load and prepare compact analysis frame
+#' Convenience: load and prepare analysis frame
 #' @param file_path optional explicit path
-#' @return tibble with standard columns
+#' @return tibble with all columns from the data file
 load_and_prepare <- function(file_path = NULL) {
   df <- load_analysis_data(file_path = file_path)
-  select_working_columns(df)
+  # Return all columns - no filtering
+  df
 }
 
 # Data Loader for R Regression Analysis

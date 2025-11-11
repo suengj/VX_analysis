@@ -25,14 +25,22 @@ suppressPackageStartupMessages({
 #' @param controls character vector of main control variables
 #' @param init_vars optional character vector of initial-condition variables
 #' @param interaction_terms character vector of interaction terms (e.g., "var1:var2")
-#' @param include_year_fe logical
+#' @param year_fe_type character: "none", "year", or "decade"
 fit_nb_no_zi_re <- function(df, dv, controls, init_vars = NULL, 
                             interaction_terms = character(0),
-                            include_year_fe = TRUE) {
+                            year_fe_type = "none") {
   rhs <- c(controls, if (!is.null(init_vars)) init_vars else character(0), interaction_terms)
   rhs <- rhs[!duplicated(rhs)]
   rhs_str <- paste(rhs, collapse = " + ")
-  if (include_year_fe) rhs_str <- paste(rhs_str, "+ factor(year)")
+  
+  # Add year fixed effects based on type
+  if (year_fe_type == "year") {
+    rhs_str <- paste(rhs_str, "+ factor(year)")
+  } else if (year_fe_type == "decade") {
+    rhs_str <- paste(rhs_str, "+ factor(decade)")
+  }
+  # else: year_fe_type == "none", no year FE added
+  
   rhs_str <- paste(rhs_str, "+ (1|firmname)")
   fml <- stats::as.formula(paste0(dv, " ~ ", rhs_str))
   glmmTMB::glmmTMB(
@@ -49,13 +57,21 @@ fit_nb_no_zi_re <- function(df, dv, controls, init_vars = NULL,
 #' @param dv dependent variable
 #' @param controls character vector of main control variables
 #' @param interaction_terms character vector of interaction terms (e.g., "var1:var2")
-#' @param include_year_fe logical
+#' @param year_fe_type character: "none", "year", or "decade"
 fit_poisson_fe <- function(df, dv, controls, 
                            interaction_terms = character(0),
-                           include_year_fe = TRUE) {
+                           year_fe_type = "none") {
   rhs <- c(controls, interaction_terms)
   rhs_str <- paste(rhs, collapse = " + ")
-  if (include_year_fe) rhs_str <- paste(rhs_str, "+ factor(year)")
+  
+  # Add year fixed effects based on type
+  if (year_fe_type == "year") {
+    rhs_str <- paste(rhs_str, "+ factor(year)")
+  } else if (year_fe_type == "decade") {
+    rhs_str <- paste(rhs_str, "+ factor(decade)")
+  }
+  # else: year_fe_type == "none", no year FE added
+  
   # Firm FE
   rhs_str <- paste(rhs_str, "+ factor(firmname)")
   fml <- stats::as.formula(paste0(dv, " ~ ", rhs_str))
@@ -113,23 +129,24 @@ export_poisson_results <- function(model, dv, tag, out_dir) {
 #' @param controls character vector of main control variables
 #' @param init_vars optional initial-condition variable vector for NB-RE
 #' @param interaction_terms character vector of interaction terms (e.g., "var1:var2")
+#' @param year_fe_type character: "none", "year", or "decade"
 #' @param out_dir output directory
 run_robustness_for_dv <- function(df, dv, controls, init_vars = NULL,
                                   interaction_terms = character(0),
                                   out_dir = file.path(
                                     "/Users","suengj","Documents","Code","Python","Research","VC",
                                     "refactor_v2","notebooks","output"),
-                                  include_year_fe = TRUE) {
+                                  year_fe_type = "none") {
   # NB without zero-inflation (RE + year FE)
   nbm <- fit_nb_no_zi_re(df, dv, controls, init_vars = init_vars, 
                          interaction_terms = interaction_terms,
-                         include_year_fe = include_year_fe)
+                         year_fe_type = year_fe_type)
   export_nb_results(nbm, dv, "nb_nozi_re", out_dir)
   
   # Poisson FE (firm FE + year FE)
   pm <- fit_poisson_fe(df, dv, controls, 
                        interaction_terms = interaction_terms,
-                       include_year_fe = include_year_fe)
+                       year_fe_type = year_fe_type)
   export_poisson_results(pm, dv, "poisson_fe", out_dir)
   
   list(nb_nozi_re = nbm, poisson_fe = pm)

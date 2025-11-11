@@ -62,6 +62,10 @@ y_{i,t} = Σ_{k=0..n} β_k · 1[τ = k] + γ_i + γ_t + X_{i,t}·δ + ε_{i,t}
 ### Fixed Effects: Identification and Pitfalls <a id="fixed-effects"></a>
 - Using VC–init.year as the panel index complicates γ_t (calendar-year FE) definition; cohort FE (γ_init_year) can help but macro shocks remain imperfectly controlled.
 - With VC–obs.year, γ_t is standard and interpretable; use τ to capture dynamic effects.
+- **Year Fixed Effects Options**:
+  - **Full Year FE (`factor(year)`)**: Controls for all calendar-year shocks, but may cause NA issues when some years have sparse data or perfect collinearity with other variables.
+  - **Decade FE (`factor(decade)`)**: Groups years into decades (80s, 90s, 00s, 10s, 20s) to reduce NA issues while still controlling for broad time trends. Recommended when full year FE causes convergence or NA problems.
+  - **No Year FE**: Parsimonious specification when time trends are captured by other variables (e.g., `years_since_init`, `market_heat`).
 - Firm FE with initial_*:
   - initial_* variables are firm-level constants → with γ_i (firm FE), initial_* drop by collinearity.
   - Workarounds:
@@ -104,8 +108,13 @@ Where:
 - `θ`: Dispersion parameter (larger θ = less overdispersion)
 - `π_{i,t}`: Probability of structural zero (firm is "not at risk")
 - `X_{i,t}`: Time-varying covariates (controls, initial conditions, Mundlak terms)
-- `γ_t`: Year fixed effects
+- `γ_t`: Year fixed effects (can be `factor(year)`, `factor(decade)`, or omitted)
 - `u_i`: Firm random intercept (captures unobserved firm heterogeneity)
+
+**Note on Year Fixed Effects**: The implementation supports three options:
+- `"year"`: Full year FE (`factor(year)`) - most granular but may cause NA issues
+- `"decade"`: Decade FE (`factor(decade)`) - groups into 80s, 90s, 00s, 10s, 20s (recommended to avoid NA issues)
+- `"none"`: No year FE - parsimonious when time trends are captured elsewhere
 
 #### Mundlak Terms: Controlling for Unobserved Firm Heterogeneity
 
