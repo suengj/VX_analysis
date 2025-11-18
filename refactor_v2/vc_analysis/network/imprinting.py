@@ -127,7 +127,10 @@ def extract_initial_partners(round_df: pd.DataFrame,
 
 def calculate_partner_centrality_by_year(initial_ties_df: pd.DataFrame,
                                          centrality_df: pd.DataFrame,
-                                         firm_col: str = 'firmname') -> pd.DataFrame:
+                                         firm_col: str = 'firmname',
+                                         year_col: str = 'year',
+                                         partner_feature_df: Optional[pd.DataFrame] = None,
+                                         partner_feature_cols: Optional[List[str]] = None) -> pd.DataFrame:
     """
     Merge partner centrality values for each year during imprinting period.
     
@@ -141,6 +144,14 @@ def calculate_partner_centrality_by_year(initial_ties_df: pd.DataFrame,
         Centrality data with columns: [firmname, year, dgr_cent, btw_cent, ...]
     firm_col : str
         Column name for firm identifier
+    year_col : str
+        Column name for year in centrality and feature DataFrames
+    partner_feature_df : pd.DataFrame, optional
+        Additional partner-level features (e.g., VC reputation) with columns
+        [firmname, year, feature...]
+    partner_feature_cols : List[str], optional
+        Specific columns from partner_feature_df to merge. If None, uses all
+        columns except firm/year
         
     Returns
     -------
@@ -151,20 +162,67 @@ def calculate_partner_centrality_by_year(initial_ties_df: pd.DataFrame,
     result_df = initial_ties_df.merge(
         centrality_df,
         left_on=['initial_partner', 'tied_year'],
-        right_on=[firm_col, 'year'],
+        right_on=[firm_col, year_col],
         how='left',
         suffixes=('', '_partner')
     )
     
     # Rename centrality columns to indicate they are partner's
     cent_cols = [col for col in centrality_df.columns 
-                 if col not in [firm_col, 'year']]
+                 if col not in [firm_col, year_col]]
     
     rename_dict = {col: f'partner_{col}' for col in cent_cols}
     result_df = result_df.rename(columns=rename_dict)
     
     # Drop duplicate columns from merge
-    result_df = result_df.drop(columns=[f'{firm_col}_partner', 'year'], errors='ignore')
+    result_df = result_df.drop(columns=[f'{firm_col}_partner', year_col], errors='ignore')
+    
+    # Optional: merge additional partner-level features (e.g., VC reputation)
+    if partner_feature_df is not None:
+        required_cols = {firm_col, year_col}
+        if not required_cols.issubset(partner_feature_df.columns):
+            missing = required_cols - set(partner_feature_df.columns)
+            logger.warning(
+                "partner_feature_df is missing required columns: %s. Skipping feature merge.",
+                missing
+            )
+        else:
+            if partner_feature_cols is None:
+                partner_feature_cols = [
+                    col for col in partner_feature_df.columns
+                    if col not in [firm_col, year_col]
+                ]
+            feature_cols = [
+                col for col in partner_feature_cols
+                if col in partner_feature_df.columns
+            ]
+            if not feature_cols:
+                logger.warning("No valid partner feature columns provided. Skipping merge.")
+            else:
+                feature_df = partner_feature_df[[firm_col, year_col] + feature_cols].copy()
+                feature_df = feature_df.rename(columns={
+                    firm_col: 'partner_feature_firm',
+                    year_col: 'partner_feature_year',
+                    **{col: f'partner_{col}' for col in feature_cols}
+                })
+                
+                result_df = result_df.merge(
+                    feature_df,
+                    left_on=['initial_partner', 'tied_year'],
+                    right_on=['partner_feature_firm', 'partner_feature_year'],
+                    how='left'
+                )
+                
+                result_df = result_df.drop(
+                    columns=['partner_feature_firm', 'partner_feature_year'],
+                    errors='ignore'
+                )
+                
+                logger.info(
+                    "Merged partner features (%d): %s",
+                    len(feature_cols),
+                    ', '.join(feature_cols)
+                )
     
     logger.info(f"Merged partner centrality for {len(result_df)} partnerships")
     

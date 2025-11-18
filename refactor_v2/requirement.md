@@ -441,19 +441,22 @@ initial_partners_df = imprinting.extract_initial_partners(
 - Extract all partners from networks at t1, t2, t3
 - Record each partnership
 
-#### 4. Calculate Partner Centrality by Year
+#### 4. Calculate Partner Centrality by Year + Partner Reputation
 ```python
 initial_ties_with_cent = imprinting.calculate_partner_centrality_by_year(
     initial_partners_df,
     imprinting_centrality_df,  # Centrality at t1, t2, t3
-    firm_col='firmname'
+    firm_col='firmname',
+    partner_feature_df=reputation_df[['firmname','year','VC_reputation']],
+    partner_feature_cols=['VC_reputation']
 )
-# Returns: Initial ties with partner centrality values merged
+# Returns: Initial ties with partner centrality + partner VC reputation
 ```
 
-**Logic**: For each partner-year pair, merge partner's centrality at that year
+**Logic**: For each partner-year pair, merge partner's centrality and VC reputation at that year
 - Centrality frame now includes Burt structural holes (`sh`, effective size)
 - Partner centrality calculated from 5-year lagged network (t-5 to t-1)
+- Partner VC reputation is pulled from the firm-year `VC_reputation` dataset and added as `partner_VC_reputation`
 
 #### 5. Compute Initial Partner Status (Partner-Weighted)
 ```python
@@ -487,6 +490,7 @@ initial_ties_df = imprinting.compute_all_initial_partner_status(
 - `initial_constraint_mean`, `initial_constraint_max`, `initial_constraint_min`
 - `initial_sh_mean`, `initial_sh_max`, `initial_sh_min` (Burt structural holes / effective size)
 - `initial_ego_dens_mean`, `initial_ego_dens_max`, `initial_ego_dens_min`
+- `initial_VC_reputation_mean`, `initial_VC_reputation_max`, `initial_VC_reputation_min` (partner reputation averaged over t1~t3)
 
 **Note on Power Measures**:
 - All Bonacich power centrality measures (`pwr_max`, `pwr_p0`, `pwr_p75`, `pwr_p99`) are automatically included when `centrality_measures=None`
@@ -497,6 +501,7 @@ initial_ties_df = imprinting.compute_all_initial_partner_status(
 - `n_initial_partners`: Number of unique partners
 - `n_partner_years`: Total partner-year observations
 - `initial_year`: Focal firm's initial year
+- Partner VC reputation is available because `partner_VC_reputation` is included in `initial_ties_with_cent`, so aggregation automatically produces `initial_VC_reputation_*`
 
 **Total**: 8 measures × 3 aggregations = 24 variables + 3 metadata = 27 columns
 
@@ -779,6 +784,7 @@ VC_reputation = 0.01 + (rep_index_raw - min_year) / (max_year - min_year) × 99.
 **Merge Strategy**:
 - Uses `how='left'` to preserve round_df-based firm-year structure
 - Firms without fund data still included (with NaN for fund-based variables)
+- Output (`VC_reputation`) is also merged into initial partner ties to compute `initial_VC_reputation_mean/max/min`
 
 ### Output Variables (14 total)
 - 6 component variables (above)

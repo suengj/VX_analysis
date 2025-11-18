@@ -28,112 +28,110 @@ ensure_columns_exist <- function(df, cols) {
   df
 }
 
-## -----------------------------------------------------------------------------
+## =============================================================================
 ## Configuration (edit here)
-## All variable names must match those in the .fst/.parquet output files from Python
-## -----------------------------------------------------------------------------
+## All variable names must match those in the .fst/.parquet output files
+## =============================================================================
 
-## 1. Dependent Variable (DV) Configuration
-## -----------------------------------------------------------------------------
-# Dependent variable: variable name from .fst/.parquet file
-# Examples: "perf_IPO", "perf_all", "perf_MnA"
+## ---------------------------------------------------------------------------
+## 1. Dependent Variable (DV)
+## ---------------------------------------------------------------------------
+# Dependent variable (e.g., "perf_IPO", "perf_all", "perf_MnA")
 DV <- Sys.getenv("DV", unset = "perf_IPO")
 
-## 2. Sample Period Filter Configuration
-## -----------------------------------------------------------------------------
-# Restrict analysis to a specific calendar-year range (inclusive).
-# Set to NULL to skip filtering on that bound.
-SAMPLE_YEAR_MIN <- 1980  # e.g., 1985
-SAMPLE_YEAR_MAX <- 2020  # e.g., 2020
+## ---------------------------------------------------------------------------
+## 2. Sample Filters
+## ---------------------------------------------------------------------------
+# Calendar-year bounds (inclusive). Use NULL to skip a bound.
+SAMPLE_YEAR_MIN <- 1980
+SAMPLE_YEAR_MAX <- 2020
 
-## 2. Years-Since-Init Sample Filter
-## -----------------------------------------------------------------------------
-# Filter out observations where years_since_init exceeds the specified threshold.
-# Set to Inf or NULL to skip filtering. Default keeps all rows.
-MAX_YEARS_SINCE_INIT <- 10
-# Examples:
-# MAX_YEARS_SINCE_INIT <- 20   # keep only rows with years_since_init <= 20
-# MAX_YEARS_SINCE_INIT <- NULL # disable filtering
+# Years-since-initial cutoff (use Inf or NULL to disable)
+MAX_YEARS_SINCE_INIT <- Inf
 
-## 3. After-Threshold Dummy Configuration
-## -----------------------------------------------------------------------------
-# Dummy variables: specify thresholds (in years since initial) to create afterX dummies
-# Example: AFTER_THRESHOLD_LIST <- c(5, 7, 10) creates after5, after7, after10 (1 if years_since_init > threshold)
-AFTER_THRESHOLD_LIST <- c(7)  # Default includes after7 for backward compatibility
-# Note: Duplicates are ignored; NA values are removed
+## ---------------------------------------------------------------------------
+## 3. After-Threshold Dummies
+## ---------------------------------------------------------------------------
+# Thresholds (years_since_init) for afterX dummies (duplicates removed)
+AFTER_THRESHOLD_LIST <- c(7)
 
-## 4. Year Fixed Effects Configuration
-## -----------------------------------------------------------------------------
-# Year fixed effects options:
-# - "none": No year fixed effects
-# - "year": factor(year) - full year fixed effects (may cause NA issues)
-# - "decade": factor(decade) - decade fixed effects (80s, 90s, 00s, 10s, 20s)
-YEAR_FE_TYPE_MAIN <- "decade"    # For main ZINB model: "none", "year", or "decade"
-YEAR_FE_TYPE_ROBUST <- "none"    # For robustness models: "none", "year", or "decade"
+## ---------------------------------------------------------------------------
+## 4. Year Fixed Effects
+## ---------------------------------------------------------------------------
+# Options per model: "none", "year", "decade"
+YEAR_FE_TYPE_MAIN   <- "decade"  # Main ZINB
+YEAR_FE_TYPE_ROBUST <- "none"    # Robustness models
 
-## 5. Control Variables (CV) Configuration
-## -----------------------------------------------------------------------------
-# Control variables: specify variable names directly from .fst/.parquet file
-# These will be divided into lagged vs. non-lagged based on VARS_TO_LAG and VARS_NO_LAG settings below
+## ---------------------------------------------------------------------------
+## 5. Control Variables (CV)
+## ---------------------------------------------------------------------------
+# Control variables pulled directly from .fst/.parquet files
 CV_LIST <- c(
-  "years_since_init",
-#  "after7",
-  "firmage",
+#  "initial_inv_num",
+#  "initial_inv_amt",
+  "n_initial_partners",
+  "initial_firmage",
   "firm_hq_CA",
   "firm_hq_MA",
+
+  "years_since_init",
+  "after7",
+#  "firmage",
   "early_stage_ratio",
   "industry_blau",
   "inv_amt",
   "inv_num",
+
   "dgr_cent",
   "sh",
   "pwr_p0",
   "ego_dens",
+
   "VC_reputation",
   "market_heat",
   "new_venture_demand"
 )
-# Note: Variables listed here will be used in models, but lagging is controlled separately below
 
-## 6. Independent Variables (IV) Configuration
-## -----------------------------------------------------------------------------
-# Independent variables: specify variable names directly from .fst/.parquet file
-# Examples: c("initial_pwr_p75_mean", "initial_pwr_p0_mean", "some_other_var")
-IV_LIST <- c("initial_sh_mean") # c("initial_pwr_p0_mean")  # Default: empty
-# Example:
-# IV_LIST <- c("initial_pwr_p75_mean")
-
-# Interaction terms: list of character vectors, each vector contains two variable names to interact
-# Format: list(c("var1", "var2"), c("var3", "var4")) creates var1:var2 and var3:var4 interactions
-# Example: INTERACTION_TERMS <- list(c("initial_pwr_p75_mean", "years_since_init"))
-INTERACTION_TERMS <- list(
-#  c("initial_pwr_p0_mean", "VC_reputation")
-#  c("initial_sh_mean", "VC_reputation")
-  c("initial_sh_mean", "ego_dens")
-)  # Default: no interactions
-# Example:
-# INTERACTION_TERMS <- list(
-#   c("initial_pwr_p75_mean", "years_since_init"),  # Initial status × Time since
-#   c("initial_pwr_p75_mean", "after7")             # Initial status × After 7 years
-# )
-
-## 7. Lagging Configuration
-## -----------------------------------------------------------------------------
-# Variables that should NOT be lagged (used as-is in models)
-# These are typically: time-adjusted variables, dummy variables, firm-level constants
-VARS_NO_LAG <- c(
-  "years_since_init",      # Time-since variable (already time-adjusted)
-#  "after7",                 # Dummy variable
-  "firmage"            # Firm age (already reflects time difference)
+## ---------------------------------------------------------------------------
+## 6. Independent Variables (IV) & Interactions
+## ---------------------------------------------------------------------------
+# Independent variables (specify directly from .fst/.parquet files)
+IV_LIST <- c(
+  # "initial_sh_mean"
+  "initial_pwr_p0_mean"
 )
 
-# Variables that should be lagged by 1 period (X_{t-1} predicts y_t)
-# These will be automatically lagged and used as {var}_lag1 in models
+# Two-way interactions: each item is c("var1", "var2")
+INTERACTION_TERMS <- list(
+  c("initial_pwr_p0_mean", "after7")
+  #c("initial_pwr_p0_mean", "VC_reputation")
+  # c("initial_sh_mean", "VC_reputation"),
+  # c("initial_sh_mean", "ego_dens")
+)
+
+# Three-way interactions: each item is c("var1", "var2", "var3")
+# -> automatically expands to pairwise combos + 3-way term (a:b, a:c, b:c, a:b:c)
+INTERACTION_TERMS_3WAY <- list(
+#  c("initial_pwr_p0_mean", "VC_reputation", "years_since_init")
+)
+
+## ---------------------------------------------------------------------------
+## 7. Lagging Setup
+## ---------------------------------------------------------------------------
+# Variables kept in current period (typically time-adjusted / dummy / constants)
+VARS_NO_LAG <- c(
+#  "years_since_init",
+#  "after7",
+#  "firmage"
+) # 일종의 안전장치일뿐
+
+# Variables to lag by 1 period (must also appear in CV_LIST)
 VARS_TO_LAG <- c(
   "early_stage_ratio",
   "industry_blau",
   "inv_amt",
   "inv_num",
+  "ego_dens",
   "dgr_cent",
   "sh",
   "pwr_p0",
@@ -141,44 +139,40 @@ VARS_TO_LAG <- c(
   "market_heat",
   "new_venture_demand"
 )
-# Note: Variables in VARS_TO_LAG must also be in CV_LIST
 
-## 8. Factor Variables Configuration
-## -----------------------------------------------------------------------------
-# Variables to convert to factors (categorical variables)
-# These will be automatically converted using factor() function
-VARS_TO_FACTOR <- character(0) # c("firm_hq_CA", "firm_hq_MA", "firm_hq_NY")  # Default: empty
+## ---------------------------------------------------------------------------
+## 8. Factor Variables
+## ---------------------------------------------------------------------------
+VARS_TO_FACTOR <- c(
+  # "firm_hq_CA",
+  # "firm_hq_MA",
+  # "firm_hq_NY"
+)
+
+## ---------------------------------------------------------------------------
+## 9. Log Transformations
+## ---------------------------------------------------------------------------
+VARS_TO_LOG <- c(
+  "inv_amt",
+  "inv_num",
+  "firmage",
+  "dgr_cent",
+
+#  "initial_inv_num",
+#  "initial_inv_amt",
+  "n_initial_partners"
+
+)
+
+## ---------------------------------------------------------------------------
+## 10. Mundlak Terms
+## ---------------------------------------------------------------------------
 # Example:
-# VARS_TO_FACTOR <- c("firm_hq", "some_categorical_var")
-# Note: Variables will be converted to factors before modeling
+MUNDLAK_VARS <- c("pwr_p0","sh","VC_reputation", "ego_dens", "dgr_cent", "inv_amt")
 
-## 9. Log Transformation Configuration
-## -----------------------------------------------------------------------------
-# Variables to log-transform using log1p() (log(1 + x) to handle zeros)
-# These will be automatically transformed and used as {var}_log in models
-VARS_TO_LOG <- c("inv_amt","inv_num","firmage","dgr_cent")  # Default: empty
-# Example:
-# VARS_TO_LOG <- c("inv_amt", "inv_num", "some_other_var")
-# Note: Variables will be log-transformed before modeling
-# Note: If a variable already has "_log" suffix in the data, it will not be transformed again
-
-## 10. Mundlak Terms Configuration
-## -----------------------------------------------------------------------------
-# Variables for Mundlak terms (firm-level means of time-varying covariates)
-# These are created automatically as {var}_firm_mean for each variable listed here
-# Mundlak terms control for unobserved firm heterogeneity in random effects models
-# MUNDLAK_VARS <- c(
-#   "early_stage_ratio",
-#   "industry_blau",
-#   "inv_amt_log",
-#   "dgr_cent"
-# )
-# Resulting Mundlak terms will be: early_stage_ratio_firm_mean, industry_blau_firm_mean, etc.
-# Note: Variables listed here should typically be time-varying covariates
-
-## 11. Model Type Configuration
-## -----------------------------------------------------------------------------
-# Model: one of "zinb" (main), "poisson_fe", "nb_nozi_re", or "all"
+## ---------------------------------------------------------------------------
+## 11. Model Selection
+## ---------------------------------------------------------------------------
 MODEL <- Sys.getenv("MODEL", unset = "zinb")
 
 # Output directory (results will be written here)
@@ -295,15 +289,72 @@ if (length(VARS_TO_LOG) > 0) {
   message("No variables specified for log transformation")
 }
 
+# Helper: resolve transformed variable names (log / lag)
+resolve_transformed_var <- function(var_name,
+                                    df_cols,
+                                    allow_lag = TRUE,
+                                    strict = FALSE,
+                                    context = "variable") {
+  candidates <- character(0)
+  if (allow_lag && var_name %in% VARS_TO_LAG) {
+    if (var_name %in% VARS_TO_LOG) {
+      candidates <- c(candidates, paste0(var_name, "_log_lag1"))
+    }
+    candidates <- c(candidates, paste0(var_name, "_lag1"))
+  }
+  if (var_name %in% VARS_TO_LOG) {
+    candidates <- c(candidates, paste0(var_name, "_log"))
+  }
+  candidates <- c(candidates, var_name)
+  for (cand in candidates) {
+    if (!is.null(cand) && cand %in% df_cols) return(cand)
+  }
+  msg <- sprintf(
+    "%s '%s' not found in data after applying log/lag transformations.",
+    context, var_name
+  )
+  if (strict) {
+    stop(paste0(msg, " Check spelling and ensure the variable exists in CV/IV lists or dataset."))
+  } else {
+    warning(paste0(msg, " Using original name, which may cause downstream errors."))
+    var_name
+  }
+}
+
+resolve_transformed_vector <- function(vars_vec,
+                                       df_cols,
+                                       allow_lag = TRUE,
+                                       strict = FALSE,
+                                       context = "variable") {
+  vapply(
+    vars_vec,
+    resolve_transformed_var,
+    character(1),
+    df_cols = df_cols,
+    allow_lag = allow_lag,
+    strict = strict,
+    context = context
+  )
+}
+
 # Add Mundlak terms (firm-level means) - computed before lagging
 # Check if MUNDLAK_VARS exists (may be commented out)
 if (!exists("MUNDLAK_VARS")) {
   MUNDLAK_VARS <- character(0)
 }
 if (length(MUNDLAK_VARS) > 0) {
-  message(sprintf("Creating Mundlak terms for variables (%d): %s", length(MUNDLAK_VARS), paste(MUNDLAK_VARS, collapse=", ")))
-  df <- add_mundlak_means(df, controls = MUNDLAK_VARS)
-  mundlak_terms <- paste0(MUNDLAK_VARS, "_firm_mean")
+  df_cols_pre_lag <- names(df)
+  resolved_mundlak <- resolve_transformed_vector(
+    MUNDLAK_VARS,
+    df_cols_pre_lag,
+    allow_lag = FALSE,
+    strict = TRUE,
+    context = "Mundlak variable"
+  )
+  resolved_mundlak <- unique(resolved_mundlak)
+  message(sprintf("Creating Mundlak terms for variables (%d): %s", length(resolved_mundlak), paste(resolved_mundlak, collapse=", ")))
+  df <- add_mundlak_means(df, controls = resolved_mundlak)
+  mundlak_terms <- paste0(resolved_mundlak, "_firm_mean")
   message(sprintf("Mundlak terms created (%d): %s", length(mundlak_terms), paste(mundlak_terms, collapse=", ")))
 } else {
   mundlak_terms <- character(0)
@@ -396,23 +447,62 @@ if (length(cv_not_specified_final) > 0) {
 }
 message(sprintf("Total control variables for model (%d): %s", length(controls_for_model), paste(controls_for_model, collapse=", ")))
 
-# Build interaction terms
-# Format: "var1:var2" for each interaction pair
+# Build interaction terms (supports 2-way and 3-way with automatic expansion)
 interaction_terms_str <- character(0)
+df_columns <- names(df)
+
+# Helper to append interaction safely
+append_interaction <- function(vars_vec) {
+  vars_vec <- stats::na.omit(vars_vec)
+  if (length(vars_vec) < 2) {
+    warning("Interaction term skipped: fewer than 2 variables provided")
+    return(NULL)
+  }
+  paste(vars_vec, collapse = ":")
+}
+
+# Two-way interactions
 if (length(INTERACTION_TERMS) > 0) {
   for (int_pair in INTERACTION_TERMS) {
     if (length(int_pair) == 2) {
-      int_str <- paste(int_pair, collapse = ":")
-      interaction_terms_str <- c(interaction_terms_str, int_str)
+      resolved <- resolve_interaction_vector(int_pair, df_columns)
+      interaction_terms_str <- c(interaction_terms_str, append_interaction(resolved))
     } else {
-      warning(sprintf("Skipping invalid interaction term (must have 2 variables): %s", paste(int_pair, collapse=", ")))
+      warning(sprintf(
+        "Skipping invalid 2-way interaction (must have 2 variables): %s",
+        paste(int_pair, collapse = ", ")
+      ))
     }
   }
-  if (length(interaction_terms_str) > 0) {
-    message(sprintf("Interaction terms (%d): %s", length(interaction_terms_str), paste(interaction_terms_str, collapse=", ")))
+}
+
+# Three-way interactions (expands to pairwise + triple terms)
+if (length(INTERACTION_TERMS_3WAY) > 0) {
+  for (int_triplet in INTERACTION_TERMS_3WAY) {
+    if (length(int_triplet) == 3) {
+      resolved_triplet <- resolve_interaction_vector(int_triplet, df_columns)
+      # Pairwise combinations
+      pair_terms <- utils::combn(resolved_triplet, 2, simplify = FALSE)
+      for (pair in pair_terms) {
+        interaction_terms_str <- c(interaction_terms_str, append_interaction(pair))
+      }
+      # Full 3-way term
+      interaction_terms_str <- c(interaction_terms_str, append_interaction(resolved_triplet))
+    } else {
+      warning(sprintf(
+        "Skipping invalid 3-way interaction (must have 3 variables): %s",
+        paste(int_triplet, collapse = ", ")
+      ))
+    }
   }
+}
+
+interaction_terms_str <- unique(stats::na.omit(interaction_terms_str))
+
+if (length(interaction_terms_str) > 0) {
+  message(sprintf("Interaction terms (%d): %s", length(interaction_terms_str), paste(interaction_terms_str, collapse=", ")))
 } else {
-  message("No interaction terms specified")
+  message("No interaction terms specified (2-way or 3-way)")
 }
 
 # Combine all predictors for diagnostics (use lagged versions)

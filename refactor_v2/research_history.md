@@ -97,6 +97,9 @@ Added 7 initial period variables that capture VC firm investment behavior and ch
 8. **`initial_geo_dist_copartner_*`** (6 variables): Average geographic distances to co-investment partners during t1~t3
    - Variables: mean, min, max, median, weighted_mean, std
    - Imprinting effect: Initial geographic proximity to partners may influence future network formation
+9. **`initial_VC_reputation_mean/max/min`**: Partner VC reputation averaged across t1~t3 (partner-weighted)
+   - Data source: `VC_reputation` (firm-year) merged onto partner ties as `partner_VC_reputation`
+   - Imprinting effect: Initial exposure to reputable partners may imprint future performance expectations
 
 **Implementation**:
 - Function: `calculate_initial_period_variables()` in `vc_analysis/network/imprinting.py`
