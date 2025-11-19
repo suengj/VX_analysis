@@ -37,29 +37,31 @@ ensure_columns_exist <- function(df, cols) {
 ## 1. Dependent Variable (DV)
 ## ---------------------------------------------------------------------------
 # Dependent variable (e.g., "perf_IPO", "perf_all", "perf_MnA")
-DV <- Sys.getenv("DV", unset = "perf_IPO")
+# DV <- Sys.getenv("DV", unset = "perf_IPO")
+DV <- Sys.getenv("DV", unset = "pwr_p0")
+# DV <- Sys.getenv("DV", unset = "VC_reputation")
 
 ## ---------------------------------------------------------------------------
 ## 2. Sample Filters
 ## ---------------------------------------------------------------------------
 # Calendar-year bounds (inclusive). Use NULL to skip a bound.
-SAMPLE_YEAR_MIN <- 1980
+SAMPLE_YEAR_MIN <- 1990
 SAMPLE_YEAR_MAX <- 2020
 
 # Years-since-initial cutoff (use Inf or NULL to disable)
-MAX_YEARS_SINCE_INIT <- Inf
+MAX_YEARS_SINCE_INIT <- 7
 
 ## ---------------------------------------------------------------------------
 ## 3. After-Threshold Dummies
 ## ---------------------------------------------------------------------------
 # Thresholds (years_since_init) for afterX dummies (duplicates removed)
-AFTER_THRESHOLD_LIST <- c(7)
+AFTER_THRESHOLD_LIST <- c(0) # c(10)
 
 ## ---------------------------------------------------------------------------
 ## 4. Year Fixed Effects
 ## ---------------------------------------------------------------------------
 # Options per model: "none", "year", "decade"
-YEAR_FE_TYPE_MAIN   <- "decade"  # Main ZINB
+YEAR_FE_TYPE_MAIN   <- "decade" # "decade"  # Main ZINB
 YEAR_FE_TYPE_ROBUST <- "none"    # Robustness models
 
 ## ---------------------------------------------------------------------------
@@ -74,8 +76,8 @@ CV_LIST <- c(
   "firm_hq_CA",
   "firm_hq_MA",
 
-  "years_since_init",
-  "after7",
+  # "years_since_init",
+  # "after10",
 #  "firmage",
   "early_stage_ratio",
   "industry_blau",
@@ -83,13 +85,15 @@ CV_LIST <- c(
   "inv_num",
 
   "dgr_cent",
-  "sh",
+  # "sh",
   "pwr_p0",
   "ego_dens",
 
-  "VC_reputation",
-  "market_heat",
-  "new_venture_demand"
+  "perf_IPO",
+
+ "VC_reputation",
+  "market_heat"
+  # "new_venture_demand"
 )
 
 ## ---------------------------------------------------------------------------
@@ -98,21 +102,27 @@ CV_LIST <- c(
 # Independent variables (specify directly from .fst/.parquet files)
 IV_LIST <- c(
   # "initial_sh_mean"
-  "initial_pwr_p0_mean"
+#  "initial_pwr_p0_mean"
+  "initial_VC_reputation_mean"
 )
 
 # Two-way interactions: each item is c("var1", "var2")
 INTERACTION_TERMS <- list(
-  c("initial_pwr_p0_mean", "after7")
+ # c("initial_VC_reputation_mean", "after10")
   #c("initial_pwr_p0_mean", "VC_reputation")
   # c("initial_sh_mean", "VC_reputation"),
   # c("initial_sh_mean", "ego_dens")
+  # c("initial_sh_mean", "years_since_init")
+  # c("initial_pwr_p0_mean", "years_since_init")
+  c("initial_VC_reputation_mean", "years_since_init")
 )
 
 # Three-way interactions: each item is c("var1", "var2", "var3")
 # -> automatically expands to pairwise combos + 3-way term (a:b, a:c, b:c, a:b:c)
 INTERACTION_TERMS_3WAY <- list(
-#  c("initial_pwr_p0_mean", "VC_reputation", "years_since_init")
+# c("initial_sh_mean", "early_stage_ratio", "years_since_init")
+#  c("initial_pwr_p0_mean", "early_stage_ratio", "years_since_init")  
+  c("initial_VC_reputation_mean", "early_stage_ratio", "years_since_init")
 )
 
 ## ---------------------------------------------------------------------------
@@ -135,9 +145,10 @@ VARS_TO_LAG <- c(
   "dgr_cent",
   "sh",
   "pwr_p0",
-  "VC_reputation",
+ "VC_reputation",
   "market_heat",
-  "new_venture_demand"
+  # "new_venture_demand",
+  "perf_IPO"
 )
 
 ## ---------------------------------------------------------------------------
@@ -167,13 +178,15 @@ VARS_TO_LOG <- c(
 ## ---------------------------------------------------------------------------
 ## 10. Mundlak Terms
 ## ---------------------------------------------------------------------------
-# Example:
-MUNDLAK_VARS <- c("pwr_p0","sh","VC_reputation", "ego_dens", "dgr_cent", "inv_amt")
+# Example: list variables in their original names; log transforms are resolved automatically
+MUNDLAK_VARS <- c() # c("sh","ego_dens", "dgr_cent", "inv_amt")
 
 ## ---------------------------------------------------------------------------
 ## 11. Model Selection
 ## ---------------------------------------------------------------------------
-MODEL <- Sys.getenv("MODEL", unset = "zinb")
+# Options: "gaussian_glm", "logistic_glm", "poisson_fe", "nb_nozi_re", "all", "zinb" (currently commented)
+# MODEL <- Sys.getenv("MODEL", unset = "zinb")
+MODEL <- Sys.getenv("MODEL", unset = "gaussian_glm")
 
 # Output directory (results will be written here)
 OUT_DIR <- file.path(
@@ -198,6 +211,7 @@ source(file.path(REG_DIR, "models_zinb_glmmTMB.R"))
 source(file.path(REG_DIR, "models_robustness.R"))
 source(file.path(REG_DIR, "results_export.R"))
 source(file.path(REG_DIR, "visualization_prep.R"))
+source(file.path(REG_DIR, "glm_helpers.R"))
 
 ## -----------------------------------------------------------------------------
 ## Load & prepare data
@@ -465,7 +479,13 @@ append_interaction <- function(vars_vec) {
 if (length(INTERACTION_TERMS) > 0) {
   for (int_pair in INTERACTION_TERMS) {
     if (length(int_pair) == 2) {
-      resolved <- resolve_interaction_vector(int_pair, df_columns)
+      resolved <- resolve_transformed_vector(
+        int_pair,
+        df_columns,
+        allow_lag = TRUE,
+        strict = TRUE,
+        context = "Interaction variable"
+      )
       interaction_terms_str <- c(interaction_terms_str, append_interaction(resolved))
     } else {
       warning(sprintf(
@@ -480,7 +500,13 @@ if (length(INTERACTION_TERMS) > 0) {
 if (length(INTERACTION_TERMS_3WAY) > 0) {
   for (int_triplet in INTERACTION_TERMS_3WAY) {
     if (length(int_triplet) == 3) {
-      resolved_triplet <- resolve_interaction_vector(int_triplet, df_columns)
+      resolved_triplet <- resolve_transformed_vector(
+        int_triplet,
+        df_columns,
+        allow_lag = TRUE,
+        strict = TRUE,
+        context = "Interaction variable"
+      )
       # Pairwise combinations
       pair_terms <- utils::combn(resolved_triplet, 2, simplify = FALSE)
       for (pair in pair_terms) {
@@ -522,14 +548,51 @@ fitted_models <- list()
 if (MODEL %in% c("zinb","all")) {
   message("Fitting main ZINB (firm RE + year FE + Mundlak, zi ~ 1)...")
   message(sprintf("Year FE type: %s", YEAR_FE_TYPE_MAIN))
-  message("Note: Using lagged time-varying covariates (X_{t-1} predicts y_t)")
+  message("Note: Using lagged time-varying covariates (X_{t-1} predicts y_t) and any specified interactions")
   m_zinb <- run_main_zinb_for_dv(df, dv = DV, init_vars = all_ivs, 
-                                  controls = controls_for_model, 
-                                  mundlak_terms = mundlak_terms,
-                                  interaction_terms = interaction_terms_str,
-                                  out_dir = OUT_DIR,
-                                  year_fe_type = YEAR_FE_TYPE_MAIN)
+                                 controls = controls_for_model, 
+                                 mundlak_terms = mundlak_terms,
+                                 interaction_terms = interaction_terms_str,
+                                 out_dir = OUT_DIR,
+                                 year_fe_type = YEAR_FE_TYPE_MAIN)
   fitted_models[["ZINB_main"]] <- m_zinb
+}
+
+if (MODEL == "gaussian_glm") {
+  message("Fitting Gaussian GLM (identity link)...")
+  glm_gaussian <- fit_glm_model(
+    df = df,
+    dv = DV,
+    init_vars = all_ivs,
+    controls = controls_for_model,
+    mundlak_terms = mundlak_terms,
+    interaction_terms = interaction_terms_str,
+    family = stats::gaussian(link = "identity"),
+    model_tag = "gaussian_glm",
+    out_dir = OUT_DIR
+  )
+  fitted_models[["Gaussian_GLM"]] <- glm_gaussian
+}
+
+if (MODEL == "logistic_glm") {
+  message("Fitting Logistic GLM (binomial logit)...")
+  dv_unique <- unique(na.omit(df[[DV]]))
+  if (!all(dv_unique %in% c(0, 1))) {
+    stop(sprintf("DV '%s' must be binary (0/1) for logistic regression. Found values: %s",
+                 DV, paste(head(dv_unique, 5), collapse = ", ")))
+  }
+  glm_logistic <- fit_glm_model(
+    df = df,
+    dv = DV,
+    init_vars = all_ivs,
+    controls = controls_for_model,
+    mundlak_terms = mundlak_terms,
+    interaction_terms = interaction_terms_str,
+    family = stats::binomial(link = "logit"),
+    model_tag = "logistic_glm",
+    out_dir = OUT_DIR
+  )
+  fitted_models[["Logistic_GLM"]] <- glm_logistic
 }
 
 if (MODEL %in% c("poisson_fe","all")) {
@@ -560,7 +623,9 @@ if (MODEL %in% c("nb_nozi_re","all")) {
 ## -----------------------------------------------------------------------------
 ## Visualization prep (optional CSV for plotting)
 ## -----------------------------------------------------------------------------
-if (length(fitted_models) > 0) {
+if (length(fitted_models) == 0) {
+  message("No models fitted (check MODEL).")
+} else if (MODEL %in% c("zinb","poisson_fe","nb_nozi_re","all")) {
   # Generate timestamp for file naming
   timestamp <- format(Sys.time(), "%y%m%d_%H%M")
   
@@ -576,7 +641,7 @@ if (length(fitted_models) > 0) {
   )
   message(sprintf("Exported coefficients for plotting: %s", nrow(plot_tbl)))
 } else {
-  message("No models fitted (check MODEL).")
+  message("No visualization export for GLM-only runs (combine_models_for_plot expects glmmTMB objects).")
 }
 
 message("Done.")
